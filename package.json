@@ -6,7 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "gitadd": "git add . && git commit -m",
-    "gitpush": "git push"
+    "gitpush": "git push",
+    "crypto:migrer": "node application/crypto/api/migrer.js",
+    "crypto:api": "node application/crypto/api/serveur.js"
   },
   "keywords": [],
   "author": "",
@@ -14,6 +16,7 @@
   "type": "commonjs",
   "dependencies": {
     "live-server": "^1.2.2",
+    "pg": "^8.13.1",
     "sqlite3": "^6.0.1"
   }
 }
