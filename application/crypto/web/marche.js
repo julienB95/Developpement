@@ -195,38 +195,167 @@
         boutons.actus();
     }
 
+    // --- Bandeau de l'en-tete ---------------------------------------------
+    // Chaque bloc est un bouton : c'est lui, en entier, qui ouvre la boite.
+    // Un <button> plutot qu'un <div> cliquable, pour le clavier et le focus.
+    function blocCliquable(intitule, action) {
+        var bloc = document.createElement('button');
+        bloc.type = 'button';
+        bloc.className = 'encart-bloc';
+        bloc.title = intitule;
+        bloc.setAttribute('aria-label', intitule);
+        bloc.addEventListener('click', action);
+        return bloc;
+    }
+
+    // Boite construite a la demande et retiree a la fermeture : elle n'a rien
+    // a conserver entre deux ouvertures, son contenu vient du dernier releve.
+    function creerDialogue(titre, classe) {
+        var boite = document.createElement('dialog');
+        boite.className = 'dialogue ' + (classe || '');
+
+        var forme = document.createElement('form');
+        forme.method = 'dialog';
+        forme.className = 'dialogue-fermer-forme';
+        var fermer = document.createElement('button');
+        fermer.className = 'dialogue-fermer';
+        fermer.value = 'fermer';
+        fermer.setAttribute('aria-label', 'Fermer');
+        fermer.textContent = '×';
+        forme.appendChild(fermer);
+        boite.appendChild(forme);
+
+        var entete = document.createElement('h2');
+        entete.textContent = titre;
+        boite.appendChild(entete);
+
+        document.body.appendChild(boite);
+        C.fermerAuClicExterieur(boite);
+        boite.addEventListener('close', function () { boite.remove(); });
+
+        return boite;
+    }
+
+    function ouvrirDialogue(boite) {
+        if (typeof boite.showModal === 'function') boite.showModal();
+        else boite.setAttribute('open', '');
+    }
+
+    function ouvrirTousLesCours() {
+        if (!donnees.cours) return;
+
+        var boite = creerDialogue('Cours', 'dialogue-large');
+
+        var horodatage = document.createElement('p');
+        horodatage.className = 'aide';
+        horodatage.textContent = 'Source ' + donnees.cours.source
+            + ' · relevé ' + ilYA(donnees.cours.releve_le);
+        boite.appendChild(horodatage);
+
+        var grille = document.createElement('div');
+        grille.className = 'grille-cours-popup';
+        donnees.cours.actifs.forEach(function (actif) {
+            grille.appendChild(carteCours(actif, donnees.cours.devise));
+        });
+        boite.appendChild(grille);
+
+        ouvrirDialogue(boite);
+    }
+
+    function ouvrirToutesLesActus() {
+        if (!donnees.actus) return;
+
+        var boite = creerDialogue('Actualités', 'dialogue-large');
+
+        var liste = document.createElement('ul');
+        liste.className = 'liste-actus-popup';
+
+        donnees.actus.articles.forEach(function (article) {
+            var item = document.createElement('li');
+
+            var lien = document.createElement('a');
+            lien.href = article.lien;
+            lien.target = '_blank';
+            lien.rel = 'noopener noreferrer';
+            lien.textContent = article.titre;
+
+            var meta = document.createElement('p');
+            meta.className = 'actu-meta';
+            var age = ilYA(article.publie_le);
+            meta.textContent = article.source + (age ? ' · ' + age : '');
+
+            item.appendChild(lien);
+            item.appendChild(meta);
+            liste.appendChild(item);
+        });
+
+        boite.appendChild(liste);
+        ouvrirDialogue(boite);
+    }
+
     function rendreEncart() {
         var encart = document.getElementById('encart-marche');
         if (!encart) return;
         C.vider(encart);
-        if (!donnees.cours) return;
 
-        var ticker = document.createElement('div');
-        ticker.className = 'ticker';
+        if (donnees.cours && donnees.cours.actifs.length) {
+            var nombreCours = donnees.cours.actifs.length;
+            var blocCours = blocCliquable(
+                nombreCours > 1 ? 'Voir les ' + nombreCours + ' cours' : 'Voir le cours',
+                ouvrirTousLesCours
+            );
 
-        donnees.cours.actifs.slice(0, 2).forEach(function (actif) {
-            var bloc = document.createElement('span');
-            bloc.className = 'ticker-actif';
+            var ticker = document.createElement('div');
+            ticker.className = 'ticker';
 
-            var symbole = document.createElement('span');
-            symbole.className = 'ticker-symbole';
-            symbole.textContent = actif.symbole;
+            donnees.cours.actifs.slice(0, 2).forEach(function (actif) {
+                var bloc = document.createElement('span');
+                bloc.className = 'ticker-actif';
 
-            var prix = document.createElement('span');
-            prix.className = 'ticker-prix';
-            prix.textContent = formaterPrix(actif.prix, donnees.cours.devise);
+                var symbole = document.createElement('span');
+                symbole.className = 'ticker-symbole';
+                symbole.textContent = actif.symbole;
 
-            var variation = document.createElement('span');
-            variation.className = classeVariation(actif.variation_24h);
-            variation.textContent = formaterVariation(actif.variation_24h);
+                var prix = document.createElement('span');
+                prix.className = 'ticker-prix';
+                prix.textContent = formaterPrix(actif.prix, donnees.cours.devise);
 
-            bloc.appendChild(symbole);
-            bloc.appendChild(prix);
-            bloc.appendChild(variation);
-            ticker.appendChild(bloc);
-        });
+                var variation = document.createElement('span');
+                variation.className = classeVariation(actif.variation_24h);
+                variation.textContent = formaterVariation(actif.variation_24h);
 
-        encart.appendChild(ticker);
+                bloc.appendChild(symbole);
+                bloc.appendChild(prix);
+                bloc.appendChild(variation);
+                ticker.appendChild(bloc);
+            });
+
+            blocCours.appendChild(ticker);
+            encart.appendChild(blocCours);
+        }
+
+        if (donnees.actus && donnees.actus.articles.length) {
+            var nombreActus = donnees.actus.articles.length;
+            var blocActus = blocCliquable(
+                nombreActus > 1 ? 'Voir les ' + nombreActus + ' actualités' : "Voir l'actualité",
+                ouvrirToutesLesActus
+            );
+
+            var titres = document.createElement('div');
+            titres.className = 'encart-actus';
+
+            // Titres en texte simple : le lien vers l'article est dans la boite.
+            // Des liens ici auraient concurrence le clic qui ouvre le bloc.
+            donnees.actus.articles.slice(0, 2).forEach(function (article) {
+                var titre = document.createElement('span');
+                titre.className = 'encart-actu';
+                titre.textContent = article.titre;
+                titres.appendChild(titre);
+            });
+
+            blocActus.appendChild(titres);
+            encart.appendChild(blocActus);
+        }
     }
 
     // --- Chargement -------------------------------------------------------

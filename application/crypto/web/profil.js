@@ -17,7 +17,36 @@
         nom: document.getElementById('nom'),
         courriel: document.getElementById('courriel'),
         devise: document.getElementById('devise'),
+        plateforme_defaut: document.getElementById('plateforme_defaut'),
+        frais_defaut: document.getElementById('frais_defaut'),
     };
+
+    // Retire les zeros de fin sans passer par un flottant
+    function versChampDecimal(valeur) {
+        var texte = String(valeur === null || valeur === undefined ? '' : valeur).trim();
+        if (!texte || texte.indexOf('.') < 0) return texte;
+        return texte.replace(/0+$/, '').replace(/\.$/, '');
+    }
+
+    // Seules les plateformes actives peuvent servir de valeur par defaut
+    function chargerPlateformes() {
+        return C.appeler('/plateformes?actives=1')
+            .then(function (lignes) {
+                C.vider(champs.plateforme_defaut);
+                var aucune = document.createElement('option');
+                aucune.value = '';
+                aucune.textContent = 'Aucune';
+                champs.plateforme_defaut.appendChild(aucune);
+
+                lignes.forEach(function (plateforme) {
+                    var option = document.createElement('option');
+                    option.value = plateforme.libelle;
+                    option.textContent = plateforme.libelle;
+                    champs.plateforme_defaut.appendChild(option);
+                });
+            })
+            .catch(function () { /* la liste reste vide, le reste du profil marche */ });
+    }
 
     function afficherErreur(message) {
         erreur.textContent = message;
@@ -36,6 +65,8 @@
         champs.nom.value = compte.nom || '';
         champs.courriel.value = compte.courriel || '';
         champs.devise.value = compte.devise || 'EUR';
+        champs.plateforme_defaut.value = compte.plateforme_defaut || '';
+        champs.frais_defaut.value = versChampDecimal(compte.frais_defaut);
 
         accesGoogle.textContent = compte.autorise_google
             ? 'La connexion par Google est autorisée sur ce compte.'
@@ -53,6 +84,8 @@
             nom: champs.nom.value.trim(),
             courriel: champs.courriel.value.trim().toLowerCase(),
             devise: champs.devise.value,
+            plateforme_defaut: champs.plateforme_defaut.value || null,
+            frais_defaut: champs.frais_defaut.value.trim().replace(',', '.') || null,
         };
 
         if (!corps.prenom || !corps.nom) return afficherErreur('Renseignez votre prénom et votre nom.');
@@ -92,8 +125,10 @@
                 });
                 if (window.Marche) window.Marche.appliquer(true);
 
-                remplir(compte);
-                zoneProfil.hidden = false;
+                return chargerPlateformes().then(function () {
+                    remplir(compte);
+                    zoneProfil.hidden = false;
+                });
             })
             .catch(function (err) {
                 if (err.code === 401) {

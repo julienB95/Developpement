@@ -967,3 +967,182 @@ body.page-large main { max-width: 1720px; }
 .carte-identite { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
 .carte-identite .logo-crypto { width: 22px; height: 22px; }
 .carte-identite .logo-repli { font-size: 8px; }
+
+/* --- Aperçu du logo dans la fiche crypto ---------------------------------- */
+
+.apercu-logo { display: flex; align-items: center; gap: 12px; min-height: 32px; }
+.apercu-logo img { border-radius: 50%; }
+.apercu-logo .aide { margin: 0; }
+
+/* --- Colonnes triables ---------------------------------------------------- */
+
+.tableau th.triable {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+.tableau th.triable:hover { color: var(--accent); }
+.tableau th.triable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* La flèche n'apparaît que sur la colonne réellement triée */
+.tableau th.triable::after {
+    content: "↕";
+    margin-left: 6px;
+    opacity: 0.35;
+    font-size: 11px;
+}
+.tableau th[aria-sort="ascending"]::after { content: "↑"; opacity: 1; }
+.tableau th[aria-sort="descending"]::after { content: "↓"; opacity: 1; }
+.tableau th[aria-sort] { color: var(--accent); }
+
+/* --- Champs obligatoires -------------------------------------------------- */
+
+.obligatoire {
+    margin-left: 4px;
+    color: var(--alerte);
+    font-weight: 700;
+    text-decoration: none;
+    cursor: help;
+}
+
+/* --- Boîte de confirmation ------------------------------------------------ */
+
+.confirmation-question { margin: 0 0 4px; }
+.dialogue .aide + .aide { margin-top: -4px; }
+
+/* --- Pavé numérique d'aide à la saisie ------------------------------------ */
+
+.pave {
+    position: fixed;
+    z-index: 100;
+    display: grid;
+    gap: 8px;
+    padding: 10px;
+    background: var(--fond-carte);
+    border: 1px solid var(--bordure);
+    border-radius: var(--rayon);
+    box-shadow: 0 12px 28px rgba(22, 32, 44, 0.22);
+}
+
+.pave-grille {
+    display: grid;
+    grid-template-columns: repeat(3, 44px);
+    gap: 6px;
+}
+
+.pave-bas { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+.pave-touche {
+    height: 40px;
+    font: inherit;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--encre);
+    background: var(--fond);
+    border: 1px solid var(--bordure);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.1s, border-color 0.1s;
+}
+.pave-touche:hover { background: var(--accent-clair); border-color: var(--accent); color: var(--accent); }
+.pave-touche:active { transform: translateY(1px); }
+
+.pave-large { font-size: 13px; font-weight: 500; }
+
+/* --- Case de confirmation d'une suppression ------------------------------- */
+
+.champ-case-alerte {
+    padding: 12px;
+    background: #fdeeed;
+    border: 1px solid #f2c6c3;
+    border-radius: 8px;
+}
+.champ-case-alerte label { font-weight: 600; }
+
+/* L'interrupteur des fiches garde sa taille propre dans une ligne de formulaire */
+.champ-case-ligne .bascule { flex: 0 0 44px; }
+
+/* --- Bandeau de l'en-tête : cours et actualités --------------------------- */
+
+.encart-bloc {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 10px;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: var(--rayon);
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+.encart-bloc:hover {
+    background: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+.encart-bloc:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+.encart-actus {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    max-width: 260px;
+    min-width: 0;
+}
+
+.encart-actu {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 12px;
+    line-height: 1.35;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+
+/* --- Boîtes « tout voir » -------------------------------------------------- */
+
+.dialogue-large {
+    width: min(760px, calc(100vw - 32px));
+    max-height: min(80vh, 720px);
+    display: flex;
+    flex-direction: column;
+}
+.dialogue-large h2 { margin-bottom: 10px; }
+.dialogue-large > .aide { margin: 0 0 14px; }
+
+.grille-cours-popup {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 12px;
+    overflow-y: auto;
+    padding: 2px;
+}
+.grille-cours-popup .carte-cours { width: auto; }
+
+.liste-actus-popup {
+    list-style: none;
+    margin: 0;
+    padding: 0 4px 0 0;
+    overflow-y: auto;
+}
+
+.liste-actus-popup li {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--bordure);
+}
+.liste-actus-popup li:last-child { border-bottom: 0; }
+
+.liste-actus-popup a {
+    display: block;
+    color: var(--encre);
+    font-weight: 500;
+    text-decoration: none;
+}
+.liste-actus-popup a:hover { color: var(--accent); text-decoration: underline; }
+
+@media (max-width: 1100px) {
+    .encart-actus { display: none; }
+}

@@ -148,10 +148,20 @@ function exigerDevise(valeur, defaut = 'EUR') {
     return devise;
 }
 
-route('GET', '/api/crypto/cryptos', async () => {
+// actives=1 : uniquement les cryptos encore suivies. Une crypto desactivee
+// disparait des choix proposes, mais reste visible dans l'administration.
+// Les compteurs servent a prevenir de ce qu'une suppression emporterait.
+route('GET', '/api/crypto/cryptos', async ({ url }) => {
+    const seulementActives = url.searchParams.get('actives') === '1';
+
     const { rows } = await db.requete(
-        `SELECT id, libelle, identifiant_coingecko, paire_binance, est_suivi, logo_url, cree_le
-         FROM crypto ORDER BY id`
+        `SELECT c.id, c.libelle, c.identifiant_coingecko, c.paire_binance,
+                c.est_suivi, c.logo_url, c.cree_le,
+                (SELECT count(*)::int FROM operation o WHERE o.id_crypto = c.id) AS operations,
+                (SELECT count(*)::int FROM crypto_valeur v WHERE v.id_crypto = c.id) AS valeurs
+         FROM crypto c
+         ${seulementActives ? 'WHERE c.est_suivi' : ''}
+         ORDER BY c.est_suivi DESC, c.id`
     );
     return { code: 200, corps: rows };
 });
@@ -164,6 +174,17 @@ route('GET', '/api/crypto/cryptos/:id', async ({ params }) => {
     );
     if (!rows.length) throw new ErreurClient('Crypto introuvable', 404);
     return { code: 200, corps: rows[0] };
+});
+
+// Les cent plus grosses capitalisations, pour alimenter la saisie d'une crypto.
+// Reserve aux administrateurs : c'est le seul endroit qui s'en sert.
+route('GET', '/api/crypto/administration/catalogue-cryptos', async ({ req }) => {
+    await exigerAdmin(req);
+    try {
+        return { code: 200, corps: await marche.catalogue() };
+    } catch (err) {
+        throw new ErreurClient(err.message, 503);
+    }
 });
 
 // Le referentiel n'est pas modifiable par un visiteur : il sert de base aux calculs
@@ -179,48 +200,72 @@ route('POST', '/api/crypto/cryptos', async ({ req, corps }) => {
         ? String(corps.paire_binance).trim().toUpperCase()
         : null;
     const suivi = corps.est_suivi === undefined ? true : corps.est_suivi === true;
+    const logo = corps.logo_url ? String(corps.logo_url).trim() : null;
 
     const { rows } = await db.requete(
-        `INSERT INTO crypto (id, libelle, identifiant_coingecko, paire_binance, est_suivi)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO crypto (id, libelle, identifiant_coingecko, paire_binance, est_suivi, logo_url)
+         VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (id) DO UPDATE
              SET libelle = EXCLUDED.libelle,
                  identifiant_coingecko = EXCLUDED.identifiant_coingecko,
                  paire_binance = EXCLUDED.paire_binance,
-                 est_suivi = EXCLUDED.est_suivi
+                 est_suivi = EXCLUDED.est_suivi,
+                 logo_url = COALESCE(EXCLUDED.logo_url, crypto.logo_url)
          RETURNING id, libelle, identifiant_coingecko, paire_binance, est_suivi, logo_url, cree_le`,
-        [id, libelle, coingecko, paire, suivi]
+        [id, libelle, coingecko, paire, suivi, logo]
     );
+
+    marche.viderCache();
     return { code: 201, corps: rows[0] };
 });
 
 // Une crypto encore utilisee par une operation n'est pas supprimable :
 // l'historique d'un utilisateur ne doit pas perdre sa reference.
-route('DELETE', '/api/crypto/cryptos/:id', async ({ req, params }) => {
+// cascade=1 : l'administrateur a confirme emporter les operations avec la crypto.
+// Sans ce drapeau, une crypto utilisee reste protegee.
+route('DELETE', '/api/crypto/cryptos/:id', async ({ req, params, url }) => {
     await exigerAdmin(req);
     const id = params.id.toUpperCase();
+    const cascade = url.searchParams.get('cascade') === '1';
 
     const { rows: usage } = await db.requete(
         'SELECT count(*)::int AS n FROM operation WHERE id_crypto = $1',
         [id]
     );
-    if (usage[0].n > 0) {
+
+    if (usage[0].n > 0 && !cascade) {
         throw new ErreurClient(
             `Suppression refusée : ${usage[0].n} opération(s) utilisent cette crypto. `
-            + 'Décochez « suivie » pour la retirer des affichages.',
+            + 'Confirmez la suppression en cascade pour les emporter avec elle.',
             409
         );
     }
 
-    const { rows } = await db.requete('DELETE FROM crypto WHERE id = $1 RETURNING id', [id]);
-    if (!rows.length) throw new ErreurClient('Crypto introuvable', 404);
-    return { code: 200, corps: { statut: 'crypto supprimee', id } };
+    // Les operations n'ont pas de suppression en cascade cote schema : elles
+    // sont retirees explicitement, dans la meme transaction que la crypto,
+    // pour qu'un echec ne laisse jamais la moitie du travail fait.
+    const supprimee = await db.transaction(async (client) => {
+        if (usage[0].n > 0) {
+            await client.query('DELETE FROM operation WHERE id_crypto = $1', [id]);
+        }
+        const { rows } = await client.query('DELETE FROM crypto WHERE id = $1 RETURNING id', [id]);
+        return rows[0];
+    });
+
+    if (!supprimee) throw new ErreurClient('Crypto introuvable', 404);
+
+    marche.viderCache();
+    return { code: 200, corps: { statut: 'crypto supprimee', id, operations: usage[0].n } };
 });
 
 // --- Plateformes -----------------------------------------------------------
-route('GET', '/api/crypto/plateformes', async () => {
+route('GET', '/api/crypto/plateformes', async ({ url }) => {
+    // actives=1 : uniquement celles encore proposees a la saisie
+    const seulementActives = url.searchParams.get('actives') === '1';
     const { rows } = await db.requete(
-        'SELECT id, libelle, cree_le FROM plateforme ORDER BY libelle'
+        'SELECT libelle, est_actif, cree_le FROM plateforme'
+        + (seulementActives ? ' WHERE est_actif' : '')
+        + ' ORDER BY est_actif DESC, libelle'
     );
     return { code: 200, corps: rows };
 });
@@ -228,25 +273,52 @@ route('GET', '/api/crypto/plateformes', async () => {
 route('POST', '/api/crypto/plateformes', async ({ req, corps }) => {
     await exigerAdmin(req);
 
-    const id = exigerTexte(corps, 'id').toLowerCase();
+    // Le libellé est la clé : il n'y a rien d'autre à saisir.
+    // ancien_libelle permet de renommer une plateforme ; la contrainte
+    // ON UPDATE CASCADE reporte le nouveau nom sur les opérations.
     const libelle = exigerTexte(corps, 'libelle');
+    const actif = corps.est_actif === undefined ? true : corps.est_actif === true;
+    const ancien = corps.ancien_libelle ? String(corps.ancien_libelle).trim() : null;
+
+    // Modification : ancien_libelle designe la ligne a mettre a jour
+    if (ancien) {
+        const { rows } = await db.requete(
+            `UPDATE plateforme SET libelle = $2, est_actif = $3 WHERE libelle = $1
+             RETURNING libelle, est_actif, cree_le`,
+            [ancien, libelle, actif]
+        );
+        if (!rows.length) throw new ErreurClient('Plateforme introuvable', 404);
+        return { code: 200, corps: rows[0] };
+    }
+
+    // Creation : un doublon doit echouer, pas ecraser la plateforme existante.
+    // L'index unique sur lower(libelle) attrape aussi « kraken » face a « Kraken ».
+    const { rows: existante } = await db.requete(
+        'SELECT libelle FROM plateforme WHERE lower(libelle) = lower($1)',
+        [libelle]
+    );
+    if (existante.length) {
+        throw new ErreurClient(
+            `La plateforme « ${existante[0].libelle} » existe déjà.`,
+            409
+        );
+    }
 
     const { rows } = await db.requete(
-        `INSERT INTO plateforme (id, libelle) VALUES ($1, $2)
-         ON CONFLICT (id) DO UPDATE SET libelle = EXCLUDED.libelle
-         RETURNING id, libelle, cree_le`,
-        [id, libelle]
+        `INSERT INTO plateforme (libelle, est_actif) VALUES ($1, $2)
+         RETURNING libelle, est_actif, cree_le`,
+        [libelle, actif]
     );
     return { code: 201, corps: rows[0] };
 });
 
-route('DELETE', '/api/crypto/plateformes/:id', async ({ req, params }) => {
+route('DELETE', '/api/crypto/plateformes/:libelle', async ({ req, params }) => {
     await exigerAdmin(req);
-    const id = params.id.toLowerCase();
+    const libelle = params.libelle;
 
     const { rows: usage } = await db.requete(
-        'SELECT count(*)::int AS n FROM operation WHERE plateforme_id = $1',
-        [id]
+        'SELECT count(*)::int AS n FROM operation WHERE plateforme = $1',
+        [libelle]
     );
     if (usage[0].n > 0) {
         throw new ErreurClient(
@@ -255,9 +327,12 @@ route('DELETE', '/api/crypto/plateformes/:id', async ({ req, params }) => {
         );
     }
 
-    const { rows } = await db.requete('DELETE FROM plateforme WHERE id = $1 RETURNING id', [id]);
+    const { rows } = await db.requete(
+        'DELETE FROM plateforme WHERE libelle = $1 RETURNING libelle',
+        [libelle]
+    );
     if (!rows.length) throw new ErreurClient('Plateforme introuvable', 404);
-    return { code: 200, corps: { statut: 'plateforme supprimee', id } };
+    return { code: 200, corps: { statut: 'plateforme supprimee', libelle } };
 });
 
 // --- Valeurs quotidiennes --------------------------------------------------
@@ -343,7 +418,7 @@ const MONTANT_SQL = `CASE
     END`;
 
 const CHAMPS_OPERATION = `o.id, o.horodatage, o.sens, o.id_crypto, c.libelle,
-                o.quantite, o.plateforme_id, p.libelle AS plateforme,
+                o.quantite, o.plateforme,
                 o.prix_unitaire, o.frais, ${MONTANT_SQL}::text AS montant, o.cree_le`;
 
 function filtresOperations(utilisateurId, url) {
@@ -394,7 +469,6 @@ route('GET', '/api/crypto/operations', async ({ req, url }) => {
         `SELECT ${CHAMPS_OPERATION}
          FROM operation o
          JOIN crypto c ON c.id = o.id_crypto
-         LEFT JOIN plateforme p ON p.id = o.plateforme_id
          WHERE ${ou}
          ORDER BY o.horodatage DESC, o.id DESC
          LIMIT $${valeurs.length + 1} OFFSET $${valeurs.length + 2}`,
@@ -438,7 +512,7 @@ function lireOperation(corps) {
         idCrypto: exigerTexte(corps, 'id_crypto').toUpperCase(),
         quantite: exigerDecimal(corps, 'quantite'),
         horodatage: exigerDate(corps.horodatage, 'horodatage'),
-        plateforme: corps.plateforme_id ? String(corps.plateforme_id).trim().toLowerCase() : null,
+        plateforme: corps.plateforme ? String(corps.plateforme).trim() : null,
         prixUnitaire: exigerDecimal(corps, 'prix_unitaire', false),
         frais: exigerDecimal(corps, 'frais', false) || '0',
     };
@@ -467,7 +541,7 @@ route('POST', '/api/crypto/operations', async ({ req, corps }) => {
 
     const { rows } = await db.requete(
         `INSERT INTO operation
-             (utilisateur_id, horodatage, sens, id_crypto, quantite, plateforme_id,
+             (utilisateur_id, horodatage, sens, id_crypto, quantite, plateforme,
               prix_unitaire, frais)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING id`,
@@ -480,7 +554,6 @@ route('POST', '/api/crypto/operations', async ({ req, corps }) => {
         `SELECT ${CHAMPS_OPERATION}
          FROM operation o
          JOIN crypto c ON c.id = o.id_crypto
-         LEFT JOIN plateforme p ON p.id = o.plateforme_id
          WHERE o.id = $1`,
         [rows[0].id]
     );
@@ -496,7 +569,7 @@ route('PUT', '/api/crypto/operations/:id', async ({ req, params, corps }) => {
     const { rows } = await db.requete(
         `UPDATE operation
          SET horodatage = $3, sens = $4, id_crypto = $5, quantite = $6,
-             plateforme_id = $7, prix_unitaire = $8, frais = $9
+             plateforme = $7, prix_unitaire = $8, frais = $9
          WHERE id = $1 AND utilisateur_id = $2
          RETURNING id`,
         [id, utilisateur.id, saisie.horodatage, saisie.sens, saisie.idCrypto,
@@ -509,7 +582,6 @@ route('PUT', '/api/crypto/operations/:id', async ({ req, params, corps }) => {
         `SELECT ${CHAMPS_OPERATION}
          FROM operation o
          JOIN crypto c ON c.id = o.id_crypto
-         LEFT JOIN plateforme p ON p.id = o.plateforme_id
          WHERE o.id = $1`,
         [id]
     );
@@ -676,6 +748,8 @@ function comptePublic(ligne) {
         autorise_google: ligne.autorise_google,
         est_bloque: ligne.est_bloque,
         mot_de_passe_a_definir: ligne.mot_de_passe_a_definir,
+        plateforme_defaut: ligne.plateforme_defaut,
+        frais_defaut: ligne.frais_defaut,
         cree_le: ligne.cree_le,
     };
 }
@@ -696,7 +770,7 @@ const MAX_TENTATIVES = 3;
 const DUREE_REINITIALISATION = 60 * 60 * 1000;
 
 const CHAMPS_COMPTE = `id, courriel, nom, prenom, est_actif, est_admin, devise,
-                autorise_google, est_bloque, mot_de_passe_a_definir, cree_le`;
+                autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`;
 
 function messageBloque() {
     return new ErreurClient(
@@ -935,11 +1009,18 @@ route('PUT', '/api/crypto/moi', async ({ req, corps }) => {
     const prenom = exigerTexte(corps, 'prenom');
     const devise = exigerDevise(corps.devise || utilisateur.devise);
 
+    // Préférences de saisie, facultatives : une chaîne vide les efface
+    const plateformeDefaut = corps.plateforme_defaut
+        ? String(corps.plateforme_defaut).trim()
+        : null;
+    const fraisDefaut = exigerDecimal(corps, 'frais_defaut', false);
+
     const { rows } = await db.requete(
-        `UPDATE utilisateur SET courriel = $2, nom = $3, prenom = $4, devise = $5
+        `UPDATE utilisateur SET courriel = $2, nom = $3, prenom = $4, devise = $5,
+                plateforme_defaut = $6, frais_defaut = $7
          WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, cree_le`,
-        [utilisateur.id, adresse, nom, prenom, devise]
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`,
+        [utilisateur.id, adresse, nom, prenom, devise, plateformeDefaut, fraisDefaut]
     );
     if (!rows.length) throw new ErreurClient('Compte introuvable', 404);
 
@@ -961,7 +1042,7 @@ route('PUT', '/api/crypto/moi/devise', async ({ req, corps }) => {
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET devise = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`,
         [utilisateur.id, devise]
     );
     return { code: 200, corps: comptePublic(rows[0]) };
@@ -995,10 +1076,11 @@ route('GET', '/api/crypto/administration/utilisateurs', async ({ req }) => {
     await exigerAdmin(req);
 
     const { rows } = await db.requete(
-        `SELECT id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, cree_le,
+        `SELECT id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le,
                 (mot_de_passe_hash IS NOT NULL) AS a_mot_de_passe,
                 (google_sub IS NOT NULL) AS a_google,
-                (SELECT count(*) FROM session s WHERE s.utilisateur_id = u.id AND s.expire_le > now())::int AS sessions_ouvertes
+                (SELECT count(*) FROM session s WHERE s.utilisateur_id = u.id AND s.expire_le > now())::int AS sessions_ouvertes,
+                (SELECT count(*)::int FROM operation o WHERE o.utilisateur_id = u.id) AS operations
          FROM utilisateur u
          ORDER BY nom, prenom`
     );
@@ -1017,7 +1099,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/activation', async ({
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET est_actif = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`,
         [id, estActif]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1050,7 +1132,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/administrateur', asyn
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET est_admin = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`,
         [id, estAdmin]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1067,7 +1149,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/google', async ({ req
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET autorise_google = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`,
         [id, autorise]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1083,7 +1165,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/deblocage', async ({ 
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET est_bloque = FALSE, tentatives_echouees = 0 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`,
         [id]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1103,6 +1185,16 @@ route('POST', '/api/crypto/administration/utilisateurs', async ({ req, corps }) 
     const autoriseGoogle = corps.autorise_google === true;
     const aDefinir = corps.mot_de_passe_a_definir === true;
 
+    // L'unicite est deja garantie par la base ; ce controle sert surtout
+    // a rendre le refus lisible plutot que generique.
+    const { rows: existant } = await db.requete(
+        'SELECT courriel FROM utilisateur WHERE courriel = $1',
+        [adresse]
+    );
+    if (existant.length) {
+        throw new ErreurClient(`Un compte existe déjà avec l'adresse ${adresse}.`, 409);
+    }
+
     let empreinte = null;
     if (!aDefinir) {
         const enClair = exigerTexte(corps, 'mot_de_passe');
@@ -1121,7 +1213,7 @@ route('POST', '/api/crypto/administration/utilisateurs', async ({ req, corps }) 
              (courriel, nom, prenom, mot_de_passe_hash, autorise_google, mot_de_passe_a_definir)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise,
-                   autorise_google, est_bloque, mot_de_passe_a_definir, cree_le`,
+                   autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`,
         [adresse, nom, prenom, empreinte, autoriseGoogle, aDefinir]
     );
 
@@ -1204,6 +1296,61 @@ route('DELETE', '/api/crypto/administration/valeurs/:crypto/:date', async ({ req
     );
     if (!rows.length) throw new ErreurClient('Valeur introuvable', 404);
     return { code: 200, corps: { statut: 'valeur supprimee' } };
+});
+
+
+// Suppression d'un compte. Les sessions et les operations partent en cascade
+// par le schema ; cascade=1 atteste que l'administrateur en a ete averti.
+route('DELETE', '/api/crypto/administration/utilisateurs/:id', async ({ req, params, url }) => {
+    const administrateur = await exigerAdmin(req);
+    const id = exigerEntier(params.id, 'id');
+    const cascade = url.searchParams.get('cascade') === '1';
+
+    // Supprimer son propre compte fermerait la session en cours et pourrait
+    // retirer le dernier administrateur : c'est refuse sans condition.
+    if (id === administrateur.id) {
+        throw new ErreurClient('Vous ne pouvez pas supprimer votre propre compte', 400);
+    }
+
+    const { rows: cible } = await db.requete(
+        `SELECT u.id, u.courriel, u.est_admin,
+                (SELECT count(*)::int FROM operation o WHERE o.utilisateur_id = u.id) AS operations
+         FROM utilisateur u WHERE u.id = $1`,
+        [id]
+    );
+    if (!cible.length) throw new ErreurClient('Utilisateur introuvable', 404);
+
+    if (cible[0].operations > 0 && !cascade) {
+        throw new ErreurClient(
+            `Suppression refusée : ce compte porte ${cible[0].operations} opération(s). `
+            + 'Confirmez la suppression en cascade pour les emporter avec lui.',
+            409
+        );
+    }
+
+    // Le dernier administrateur actif ne peut pas disparaitre : plus personne
+    // ne pourrait alors administrer l'application depuis l'interface.
+    if (cible[0].est_admin) {
+        const { rows: restants } = await db.requete(
+            'SELECT count(*)::int AS n FROM utilisateur WHERE est_admin AND est_actif AND id <> $1',
+            [id]
+        );
+        if (restants[0].n === 0) {
+            throw new ErreurClient('Refus : il doit rester au moins un administrateur actif', 409);
+        }
+    }
+
+    await db.requete('DELETE FROM utilisateur WHERE id = $1', [id]);
+
+    return {
+        code: 200,
+        corps: {
+            statut: 'compte supprime',
+            id,
+            courriel: cible[0].courriel,
+            operations: cible[0].operations,
+        },
+    };
 });
 
 

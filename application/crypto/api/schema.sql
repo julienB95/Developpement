@@ -48,12 +48,44 @@ ALTER TABLE crypto ADD COLUMN IF NOT EXISTS logo_url TEXT;
 -- Paire Binance en euro, utilisee pour relever la valeur moyenne journaliere
 ALTER TABLE crypto ADD COLUMN IF NOT EXISTS paire_binance TEXT;
 
--- Plateformes d'échange sur lesquelles les opérations sont passées
+-- Plateformes d'échange sur lesquelles les opérations sont passées.
+-- Le libellé fait office de clé : une plateforme n'a rien d'autre à porter,
+-- un identifiant technique à côté du nom n'aurait fait qu'alourdir la saisie.
 CREATE TABLE IF NOT EXISTS plateforme (
-    id       TEXT PRIMARY KEY,
-    libelle  TEXT NOT NULL,
+    libelle  TEXT PRIMARY KEY,
     cree_le  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Une plateforme inactive n'est plus proposée à la saisie d'une opération,
+-- mais reste rattachée aux opérations déjà enregistrées.
+ALTER TABLE plateforme ADD COLUMN IF NOT EXISTS est_actif BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- La clé primaire distingue déjà « Kraken » de « Kraken », mais pas de « kraken ».
+-- Deux plateformes qui ne diffèrent que par la casse sont un doublon.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_plateforme_libelle_unique
+    ON plateforme (lower(libelle));
+
+-- Passage de l'ancienne forme (identifiant technique + libellé) à la nouvelle.
+-- Les opérations pointaient l'identifiant : elles doivent pointer le libellé.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'plateforme' AND column_name = 'id'
+    ) THEN
+        ALTER TABLE operation DROP CONSTRAINT IF EXISTS operation_plateforme_id_fkey;
+
+        UPDATE operation o
+        SET plateforme_id = p.libelle
+        FROM plateforme p
+        WHERE o.plateforme_id = p.id;
+
+        ALTER TABLE plateforme DROP CONSTRAINT plateforme_pkey CASCADE;
+        ALTER TABLE plateforme DROP COLUMN id;
+        ALTER TABLE plateforme ADD PRIMARY KEY (libelle);
+    END IF;
+END $$;
+
 
 -- --------------------------------------------------------------------------
 -- Valeurs quotidiennes
@@ -145,6 +177,25 @@ ALTER TABLE utilisateur
 ALTER TABLE utilisateur
     ADD COLUMN IF NOT EXISTS tentatives_echouees SMALLINT NOT NULL DEFAULT 0;
 
+-- Valeurs reprises par défaut à la saisie d'une opération. Facultatives :
+-- un compte qui ne les renseigne pas saisit tout à la main comme avant.
+ALTER TABLE utilisateur
+    ADD COLUMN IF NOT EXISTS plateforme_defaut TEXT;
+
+ALTER TABLE utilisateur
+    ADD COLUMN IF NOT EXISTS frais_defaut NUMERIC(38, 18);
+
+ALTER TABLE utilisateur DROP CONSTRAINT IF EXISTS utilisateur_frais_defaut;
+ALTER TABLE utilisateur
+    ADD CONSTRAINT utilisateur_frais_defaut CHECK (frais_defaut IS NULL OR frais_defaut >= 0);
+
+-- Renommer une plateforme suit dans les préférences, comme dans les opérations
+ALTER TABLE utilisateur DROP CONSTRAINT IF EXISTS utilisateur_plateforme_defaut_fkey;
+ALTER TABLE utilisateur
+    ADD CONSTRAINT utilisateur_plateforme_defaut_fkey
+    FOREIGN KEY (plateforme_defaut) REFERENCES plateforme(libelle)
+    ON UPDATE CASCADE ON DELETE SET NULL;
+
 -- Compte créé par un administrateur dont le mot de passe reste à définir
 -- par la personne elle-même, via le lien qui lui est transmis.
 ALTER TABLE utilisateur
@@ -208,13 +259,33 @@ CREATE TABLE IF NOT EXISTS operation (
     sens            TEXT NOT NULL CHECK (sens IN ('achat', 'vente')),
     id_crypto       TEXT NOT NULL REFERENCES crypto(id),
     quantite        NUMERIC(38, 18) NOT NULL CHECK (quantite > 0),
-    plateforme_id   TEXT REFERENCES plateforme(id),
+    plateforme      TEXT,
     -- Hors de ta liste, mais laissé facultatif : sans le prix réellement payé ou
     -- encaissé en euro, aucune plus-value ne peut être calculée pour la 2086.
     prix_unitaire   NUMERIC(38, 18) CHECK (prix_unitaire >= 0),
     frais           NUMERIC(38, 18) NOT NULL DEFAULT 0 CHECK (frais >= 0),
     cree_le         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- La colonne porte désormais le libellé de la plateforme, plus un identifiant.
+-- Le renommage n'a lieu que sur une base créée avant ce changement.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'operation' AND column_name = 'plateforme_id'
+    ) THEN
+        ALTER TABLE operation RENAME COLUMN plateforme_id TO plateforme;
+    END IF;
+END $$;
+
+-- ON UPDATE CASCADE : renommer une plateforme suit dans les opérations,
+-- puisque c'est le libellé lui-même qui sert de clé.
+ALTER TABLE operation DROP CONSTRAINT IF EXISTS operation_plateforme_id_fkey;
+ALTER TABLE operation DROP CONSTRAINT IF EXISTS operation_plateforme_fkey;
+ALTER TABLE operation
+    ADD CONSTRAINT operation_plateforme_fkey
+    FOREIGN KEY (plateforme) REFERENCES plateforme(libelle) ON UPDATE CASCADE;
 
 CREATE INDEX IF NOT EXISTS idx_operation_utilisateur
     ON operation (utilisateur_id, horodatage DESC);
@@ -256,11 +327,11 @@ ON CONFLICT (id) DO UPDATE
 
 UPDATE crypto SET paire_binance = id || 'EUR' WHERE paire_binance IS NULL;
 
-INSERT INTO plateforme (id, libelle) VALUES
-    ('binance',  'Binance'),
-    ('kraken',   'Kraken'),
-    ('coinbase', 'Coinbase'),
-    ('bitstamp', 'Bitstamp'),
-    ('bitpanda', 'Bitpanda'),
-    ('autre',    'Autre')
-ON CONFLICT (id) DO UPDATE SET libelle = EXCLUDED.libelle;
+INSERT INTO plateforme (libelle) VALUES
+    ('Binance'),
+    ('Kraken'),
+    ('Coinbase'),
+    ('Bitstamp'),
+    ('Bitpanda'),
+    ('Autre')
+ON CONFLICT (libelle) DO NOTHING;

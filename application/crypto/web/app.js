@@ -250,7 +250,7 @@
             return;
         }
 
-        // Hors connexion, la page se limite aux marchés et aux actualités.
+        // Hors connexion, la page se limite aux cours et aux actualités.
         // Les comptes sont créés par un administrateur, pas en libre-service.
         espaceConnecte.hidden = true;
     }
@@ -305,6 +305,8 @@
         dialogue.close();
     }
 
+
+    C.fermerAuClicExterieur(dialogue);
 
     lienOubli.addEventListener('click', function () { basculerMode('oubli'); });
 

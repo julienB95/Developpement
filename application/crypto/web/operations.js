@@ -76,7 +76,7 @@
     function chargerFiltres() {
         return Promise.all([
             C.appeler('/operations/annees').catch(function () { return []; }),
-            C.appeler('/cryptos').catch(function () { return []; }),
+            C.appeler('/cryptos?actives=1').catch(function () { return []; }),
         ]).then(function (resultats) {
             C.vider(filtreAnnee);
             filtreAnnee.appendChild(option('', 'Toutes'));

@@ -160,6 +160,26 @@
         bloc.appendChild(conteneur);
     }
 
+    // --- Fermeture d'une boîte au clic extérieur --------------------------
+    // Un clic sur le fond d'une boîte modale a pour cible la boîte elle-même :
+    // c'est ce qui permet de distinguer le fond du contenu. La comparaison au
+    // rectangle évite de fermer quand on clique dans la marge de la boîte,
+    // et le test sur la cible protège ce qui déborde d'elle — le pavé numérique
+    // sort du cadre tout en restant un descendant.
+    function fermerAuClicExterieur(dialogue) {
+        dialogue.addEventListener('click', function (evenement) {
+            if (evenement.target !== dialogue) return;
+
+            var cadre = dialogue.getBoundingClientRect();
+            var dedans = evenement.clientX >= cadre.left
+                && evenement.clientX <= cadre.right
+                && evenement.clientY >= cadre.top
+                && evenement.clientY <= cadre.bottom;
+
+            if (!dedans) dialogue.close();
+        });
+    }
+
     // Date et heure d'une opération, toujours affichées en heure de Paris :
     // c'est le calendrier français qui fait foi pour la déclaration.
     function formaterDateHeure(iso) {
@@ -431,6 +451,7 @@
         formaterQuantite: formaterQuantite,
         logoCrypto: logoCrypto,
         formaterDateHeure: formaterDateHeure,
+        fermerAuClicExterieur: fermerAuClicExterieur,
         surChangementDevise: surChangementDevise,
     };
 })();

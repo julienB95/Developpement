@@ -28,7 +28,7 @@ async function utilisateurDepuisJeton(jeton) {
     if (!jeton) return null;
 
     const { rows } = await db.requete(
-        `SELECT u.id, u.courriel, u.nom, u.prenom, u.est_actif, u.est_admin, u.devise, u.autorise_google, u.est_bloque, u.cree_le, s.expire_le
+        `SELECT u.id, u.courriel, u.nom, u.prenom, u.est_actif, u.est_admin, u.devise, u.autorise_google, u.est_bloque, u.plateforme_defaut, u.frais_defaut, u.cree_le, s.expire_le
          FROM session s
          JOIN utilisateur u ON u.id = s.utilisateur_id
          WHERE s.jeton_hash = $1 AND s.expire_le > now()`,

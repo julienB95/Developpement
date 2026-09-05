@@ -16,7 +16,17 @@
         return element;
     }
 
-    function champTexte(identifiant, libelle, type) {
+    // Marque un champ obligatoire, portee par le libelle lui-meme :
+    // un lecteur d'ecran annonce donc « Prenom, obligatoire ».
+    function etoile() {
+        var marque = document.createElement('abbr');
+        marque.className = 'obligatoire';
+        marque.title = 'Champ obligatoire';
+        marque.textContent = '*';
+        return marque;
+    }
+
+    function champTexte(identifiant, libelle, type, obligatoire) {
         var bloc = document.createElement('div');
         bloc.className = 'champ';
 
@@ -25,7 +35,10 @@
         entree.id = identifiant;
         entree.name = identifiant;
 
-        bloc.appendChild(etiquette(identifiant, libelle));
+        var texte = etiquette(identifiant, libelle);
+        if (obligatoire) texte.appendChild(etoile());
+
+        bloc.appendChild(texte);
         bloc.appendChild(entree);
 
         champs[identifiant] = entree;
@@ -87,9 +100,9 @@
         forme.className = 'formulaire';
         forme.noValidate = true;
 
-        forme.appendChild(champTexte('u_prenom', 'Prénom'));
-        forme.appendChild(champTexte('u_nom', 'Nom'));
-        forme.appendChild(champTexte('u_courriel', 'Adresse de courriel', 'email'));
+        forme.appendChild(champTexte('u_prenom', 'Prénom', 'text', true));
+        forme.appendChild(champTexte('u_nom', 'Nom', 'text', true));
+        forme.appendChild(champTexte('u_courriel', 'Adresse de courriel', 'email', true));
 
         forme.appendChild(caseACocher(
             'u_a_definir',
@@ -131,11 +144,35 @@
         forme.appendChild(actions);
         forme.addEventListener('submit', creer);
 
-        champs.u_a_definir.addEventListener('change', ajusterMotDePasse);
+        champs.u_a_definir.addEventListener('change', function () {
+            ajusterMotDePasse();
+            verifierObligatoires();
+        });
+
+        // Le bouton reste inactif tant qu'un champ obligatoire est vide.
+        // Le mot de passe provisoire en fait partie quand il est demandé.
+        ['u_prenom', 'u_nom', 'u_courriel', 'u_mot_de_passe'].forEach(function (nom) {
+            champs[nom].addEventListener('input', verifierObligatoires);
+        });
+
+        C.fermerAuClicExterieur(dialogue);
 
         dialogue.appendChild(forme);
         document.body.appendChild(dialogue);
         champs.forme = forme;
+    }
+
+    function verifierObligatoires() {
+        var manque = ['u_prenom', 'u_nom', 'u_courriel'].some(function (nom) {
+            return !String(champs[nom].value || '').trim();
+        });
+
+        // Le mot de passe provisoire compte comme obligatoire quand il est demandé
+        if (!champs.u_a_definir.checked) {
+            manque = manque || String(champs.u_mot_de_passe.value || '').trim().length < 12;
+        }
+
+        champs.valider.disabled = manque;
     }
 
     // Le mot de passe provisoire ne sert que si l'administrateur le pose lui-même
@@ -236,7 +273,7 @@
                 }
                 afficherErreur(erreur.message);
             })
-            .finally(function () { champs.valider.disabled = false; });
+            .finally(verifierObligatoires);
     }
 
     function ouvrir(options) {
@@ -254,6 +291,7 @@
 
         champs.u_a_definir.checked = true;
         ajusterMotDePasse();
+        verifierObligatoires();
 
         if (typeof dialogue.showModal === 'function') dialogue.showModal();
         else dialogue.setAttribute('open', '');
