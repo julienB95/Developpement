@@ -106,6 +106,22 @@
         menu.appendChild(identite);
         menu.appendChild(courriel);
 
+        // Accessible a tout le monde
+        function lienMenu(adresse, libelle) {
+            var lien = document.createElement('a');
+            lien.className = 'menu-action menu-action-lien';
+            lien.href = adresse;
+            lien.textContent = libelle;
+            return lien;
+        }
+
+        if (options.masquerOperations !== true) {
+            menu.appendChild(lienMenu('/operations.html', 'Opérations'));
+        }
+        if (options.masquerProfil !== true) {
+            menu.appendChild(lienMenu('/profil.html', 'Profil'));
+        }
+
         if (compte.est_admin) {
             var etiquette = document.createElement('p');
             etiquette.className = 'menu-role';
@@ -113,11 +129,7 @@
             menu.appendChild(etiquette);
 
             if (!options.masquerAdministration) {
-                var lien = document.createElement('a');
-                lien.className = 'menu-action menu-action-lien';
-                lien.href = '/administration.html';
-                lien.textContent = "Administration";
-                menu.appendChild(lien);
+                menu.appendChild(lienMenu('/administration.html', 'Administration'));
             }
         }
 
@@ -148,6 +160,261 @@
         bloc.appendChild(conteneur);
     }
 
+    // Date et heure d'une opération, toujours affichées en heure de Paris :
+    // c'est le calendrier français qui fait foi pour la déclaration.
+    function formaterDateHeure(iso) {
+        var date = new Date(iso);
+        if (isNaN(date.getTime())) return '—';
+        try {
+            return new Intl.DateTimeFormat('fr-FR', {
+                timeZone: 'Europe/Paris',
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hourCycle: 'h23',
+            }).format(date);
+        } catch (e) {
+            // Fuseau inconnu du navigateur : repli sur l'heure locale du poste
+            return date.toLocaleString('fr-FR');
+        }
+    }
+
+    // --- Logo d'une crypto ------------------------------------------------
+    // L'image est servie par l'API, jamais recuperee depuis la source par le
+    // navigateur. Si elle manque, une pastille de repli porte le symbole.
+    function logoCrypto(idCrypto, taille) {
+        taille = taille || 28;
+
+        var cadre = document.createElement('span');
+        cadre.className = 'logo-crypto';
+        cadre.style.width = taille + 'px';
+        cadre.style.height = taille + 'px';
+
+        var repli = document.createElement('span');
+        repli.className = 'logo-repli';
+        repli.textContent = String(idCrypto).slice(0, 3);
+        repli.hidden = true;
+
+        var image = document.createElement('img');
+        image.src = '/api/crypto/cryptos/' + encodeURIComponent(idCrypto) + '/logo';
+        image.alt = '';
+        image.width = taille;
+        image.height = taille;
+        image.loading = 'lazy';
+        image.addEventListener('error', function () {
+            image.remove();
+            repli.hidden = false;
+        });
+
+        cadre.appendChild(repli);
+        cadre.appendChild(image);
+        return cadre;
+    }
+
+    // --- Mise en forme des montants ---------------------------------------
+    function formaterMontant(valeur, deviseDemandee) {
+        var nombre = Number(valeur);
+        if (valeur === null || valeur === undefined || !isFinite(nombre)) return '—';
+        // Les cryptos a faible valeur unitaire ont besoin de plus de decimales
+        var decimales = nombre >= 100 ? 0 : (nombre >= 1 ? 2 : 6);
+        return new Intl.NumberFormat('fr-FR', {
+            style: 'currency',
+            currency: deviseDemandee || deviseCourante,
+            minimumFractionDigits: decimales,
+            maximumFractionDigits: decimales,
+        }).format(nombre);
+    }
+
+    // Les quantites arrivent en chaine decimale : on les met en forme sans jamais
+    // passer par un flottant, qui perdrait les derniers chiffres significatifs.
+    function formaterQuantite(valeur) {
+        if (valeur === null || valeur === undefined) return '—';
+        var texte = String(valeur).trim();
+        if (!/^-?\d+(\.\d+)?$/.test(texte)) return texte;
+
+        var signe = texte.charAt(0) === '-' ? '-' : '';
+        if (signe) texte = texte.slice(1);
+
+        var morceaux = texte.split('.');
+        var entier = morceaux[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+        var decimal = (morceaux[1] || '').replace(/0+$/, '');
+
+        return signe + entier + (decimal ? ',' + decimal : '');
+    }
+
+    // --- Devise d'affichage -----------------------------------------------
+    // Hors connexion, le choix vit dans le navigateur. Une fois connecte, il est
+    // porte par le compte : c'est lui qui fait foi et qui suit l'utilisateur.
+    var CLE_DEVISE = 'crypto_devise';
+    var SYMBOLES = { EUR: '€', USD: '$' };
+
+    var deviseCourante = 'EUR';
+    var abonnesDevise = [];
+
+    function deviseValide(valeur) {
+        var devise = String(valeur || '').toUpperCase();
+        return SYMBOLES[devise] ? devise : null;
+    }
+
+    function lireDeviseLocale() {
+        try { return deviseValide(localStorage.getItem(CLE_DEVISE)); } catch (e) { return null; }
+    }
+    function ecrireDeviseLocale(devise) {
+        try { localStorage.setItem(CLE_DEVISE, devise); } catch (e) { /* choix non memorise */ }
+    }
+
+    function devise() { return deviseCourante; }
+    function symboleDevise() { return SYMBOLES[deviseCourante]; }
+
+    function rafraichirBoutonDevise() {
+        var symbole = document.getElementById('devise-symbole');
+        var bouton = document.getElementById('bouton-devise');
+        if (symbole) symbole.textContent = SYMBOLES[deviseCourante];
+        if (bouton) {
+            var autre = deviseCourante === 'EUR' ? 'dollar' : 'euro';
+            bouton.title = 'Montants en ' + (deviseCourante === 'EUR' ? 'euro' : 'dollar')
+                + ' — afficher en ' + autre;
+            bouton.setAttribute('aria-label', bouton.title);
+        }
+    }
+
+    // enregistrer : true quand le changement vient de l'utilisateur, false quand
+    // il vient du serveur (sinon on renverrait au serveur ce qu'il vient de dire)
+    function definirDevise(valeur, options) {
+        options = options || {};
+        var nouvelle = deviseValide(valeur);
+        if (!nouvelle) return;
+
+        var change = nouvelle !== deviseCourante;
+        deviseCourante = nouvelle;
+        rafraichirBoutonDevise();
+        ecrireDeviseLocale(nouvelle);
+
+        if (options.enregistrer && lireJeton()) {
+            appeler('/moi/devise', { method: 'PUT', corps: { devise: nouvelle } })
+                .catch(function () { /* le choix reste applique a l'ecran pour cette visite */ });
+        }
+
+        if (change || options.forcer) {
+            abonnesDevise.forEach(function (fn) { fn(nouvelle); });
+        }
+    }
+
+    function surChangementDevise(fn) {
+        if (typeof fn === 'function') abonnesDevise.push(fn);
+    }
+
+    function brancherBoutonDevise() {
+        var bouton = document.getElementById('bouton-devise');
+        if (!bouton) return;
+        bouton.addEventListener('click', function () {
+            definirDevise(deviseCourante === 'EUR' ? 'USD' : 'EUR', { enregistrer: true });
+        });
+    }
+
+    deviseCourante = lireDeviseLocale() || 'EUR';
+    brancherBoutonDevise();
+    rafraichirBoutonDevise();
+
+    // --- Horloge de l'en-tete ---------------------------------------------
+    // Les horaires sont calcules par fuseau, jamais depuis l'heure du poste :
+    // un visiteur hors de France doit voir la meme heure de Paris que les autres.
+    // Les secondes defilent, pour un cout tenu au minimum :
+    //   - les formateurs Intl sont construits une seule fois, pas a chaque battement ;
+    //   - le DOM n'est ecrit que lorsque le texte affiche change reellement ;
+    //   - le battement est arrete des que l'onglet passe en arriere-plan.
+    var FUSEAUX = { paris: 'Europe/Paris', newYork: 'America/New_York' };
+
+    var elementsHorloge = null;
+    var formateurs = {};
+    var attenteHorloge = null;
+    var battementHorloge = null;
+
+    function construireFormateur(options) {
+        try {
+            return new Intl.DateTimeFormat('fr-FR', options);
+        } catch (e) {
+            // Fuseau inconnu du navigateur : repli sur l'heure locale du poste
+            var repli = Object.assign({}, options);
+            delete repli.timeZone;
+            return new Intl.DateTimeFormat('fr-FR', repli);
+        }
+    }
+
+    function formateur(cle) {
+        if (formateurs[cle]) return formateurs[cle];
+
+        formateurs[cle] = cle === 'jour'
+            ? construireFormateur({
+                timeZone: FUSEAUX.paris,
+                weekday: 'long',
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+            })
+            : construireFormateur({
+                timeZone: FUSEAUX[cle],
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hourCycle: 'h23',
+            });
+
+        return formateurs[cle];
+    }
+
+    function ecrireSiChange(element, texte) {
+        if (element && element.textContent !== texte) element.textContent = texte;
+    }
+
+    function rafraichirHorloge() {
+        if (!elementsHorloge) return;
+        var maintenant = new Date();
+
+        var jour = formateur('jour').format(maintenant);
+        ecrireSiChange(elementsHorloge.jour, jour.charAt(0).toUpperCase() + jour.slice(1));
+        ecrireSiChange(elementsHorloge.paris, formateur('paris').format(maintenant));
+        ecrireSiChange(elementsHorloge.newYork, formateur('newYork').format(maintenant));
+    }
+
+    function arreterHorloge() {
+        if (attenteHorloge) { clearTimeout(attenteHorloge); attenteHorloge = null; }
+        if (battementHorloge) { clearInterval(battementHorloge); battementHorloge = null; }
+    }
+
+    function lancerHorloge() {
+        arreterHorloge();
+        rafraichirHorloge();
+        // Recalage sur la seconde pleine : l'affichage change en meme temps que l'horloge systeme
+        attenteHorloge = setTimeout(function () {
+            attenteHorloge = null;
+            rafraichirHorloge();
+            battementHorloge = setInterval(rafraichirHorloge, 1000);
+        }, 1000 - (Date.now() % 1000));
+    }
+
+    function demarrerHorloge() {
+        if (!document.getElementById('horloge')) return;
+
+        elementsHorloge = {
+            jour: document.getElementById('horloge-jour'),
+            paris: document.getElementById('horloge-paris'),
+            newYork: document.getElementById('horloge-newyork'),
+        };
+
+        lancerHorloge();
+
+        // Onglet en arriere-plan : plus rien a afficher, donc plus rien a calculer
+        document.addEventListener('visibilitychange', function () {
+            if (document.hidden) arreterHorloge();
+            else lancerHorloge();
+        });
+    }
+
+    demarrerHorloge();
+
     window.Crypto = {
         appeler: appeler,
         lireJeton: lireJeton,
@@ -157,5 +424,13 @@
         initiales: initiales,
         afficherCompte: afficherCompte,
         seDeconnecter: seDeconnecter,
+        devise: devise,
+        symboleDevise: symboleDevise,
+        definirDevise: definirDevise,
+        formaterMontant: formaterMontant,
+        formaterQuantite: formaterQuantite,
+        logoCrypto: logoCrypto,
+        formaterDateHeure: formaterDateHeure,
+        surChangementDevise: surChangementDevise,
     };
 })();

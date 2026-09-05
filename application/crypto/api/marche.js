@@ -1,5 +1,7 @@
 // Cours des crypto-actifs, via l'offre gratuite de CoinGecko (aucune cle d'API).
 // Un cache en memoire evite de depasser le quota et de rappeler la source a chaque visiteur.
+const db = require('../../_commun/api/db');
+
 const URL_MARCHES = 'https://api.coingecko.com/api/v3/coins/markets';
 
 const ACTIFS_PAR_DEFAUT = [
@@ -9,14 +11,28 @@ const ACTIFS_PAR_DEFAUT = [
 
 const DEVISES_ACCEPTEES = ['eur', 'usd'];
 const DUREE_CACHE = 120 * 1000;
+// Un rafraichissement demande par un visiteur raccourcit le cache sans le supprimer :
+// la source est protegee meme si le bouton est actionne en rafale.
+const DUREE_CACHE_FORCE = 30 * 1000;
 const DELAI_REPONSE = 8000;
 
 const cache = new Map();
 
-function actifsSuivis() {
-    const configure = (process.env.CRYPTO_ACTIFS_SUIVIS || '').trim();
-    if (!configure) return ACTIFS_PAR_DEFAUT;
-    return configure.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean);
+// La liste suivie vient du referentiel : c'est la table crypto qui fait foi.
+// Repli sur la liste par defaut si la base est injoignable, pour que la page
+// publique reste servie meme sans PostgreSQL.
+async function actifsSuivis() {
+    try {
+        const { rows } = await db.requete(
+            `SELECT identifiant_coingecko FROM crypto
+             WHERE est_suivi AND identifiant_coingecko IS NOT NULL
+             ORDER BY id`
+        );
+        if (rows.length) return rows.map((ligne) => ligne.identifiant_coingecko);
+    } catch (err) {
+        console.error('Référentiel des cryptos illisible :', err.message);
+    }
+    return ACTIFS_PAR_DEFAUT;
 }
 
 // Les prix sont transmis en chaine : aucun arrondi ni perte de precision en route
@@ -40,19 +56,20 @@ function normaliser(ligne) {
     };
 }
 
-async function cours(deviseDemandee) {
+async function cours(deviseDemandee, forcer) {
     const devise = DEVISES_ACCEPTEES.includes(String(deviseDemandee || '').toLowerCase())
         ? String(deviseDemandee).toLowerCase()
         : 'eur';
 
     const enCache = cache.get(devise);
-    if (enCache && Date.now() - enCache.horodatage < DUREE_CACHE) {
+    const duree = forcer ? DUREE_CACHE_FORCE : DUREE_CACHE;
+    if (enCache && Date.now() - enCache.horodatage < duree) {
         return { ...enCache.donnees, provenance: 'cache' };
     }
 
     const url = new URL(URL_MARCHES);
     url.searchParams.set('vs_currency', devise);
-    url.searchParams.set('ids', actifsSuivis().join(','));
+    url.searchParams.set('ids', (await actifsSuivis()).join(','));
     url.searchParams.set('order', 'market_cap_desc');
     url.searchParams.set('price_change_percentage', '24h');
     url.searchParams.set('sparkline', 'false');
@@ -91,4 +108,12 @@ async function cours(deviseDemandee) {
     return { ...donnees, provenance: 'source' };
 }
 
-module.exports = { cours, DEVISES_ACCEPTEES };
+// URL du logo d un actif, telle que fournie par la source. Le fichier lui-meme
+// est servi par l API : le navigateur ne contacte jamais CoinGecko directement.
+async function logoActif(identifiant) {
+    const donnees = await cours('eur');
+    const actif = donnees.actifs.find((a) => a.id === identifiant);
+    return actif ? actif.image : null;
+}
+
+module.exports = { cours, logoActif, DEVISES_ACCEPTEES };

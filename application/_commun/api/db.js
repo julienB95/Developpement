@@ -8,6 +8,11 @@ env.charger();
 types.setTypeParser(1700, (valeur) => valeur); // numeric
 types.setTypeParser(20, (valeur) => valeur);   // int8
 
+// DATE est conservé en chaîne AAAA-MM-JJ. Converti en objet Date, il serait
+// interprété à minuit heure locale : sérialisé en UTC, il reculerait d'un jour
+// pour tout fuseau à l'est de Greenwich — le 1er septembre s'afficherait le 31 août.
+types.setTypeParser(1082, (valeur) => valeur); // date
+
 const pool = new Pool({
     host: env.requis('PGHOST'),
     port: Number(process.env.PGPORT || 5432),

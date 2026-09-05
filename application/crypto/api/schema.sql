@@ -2,65 +2,96 @@
 -- Toutes les valeurs monétaires sont en NUMERIC (jamais en flottant)
 -- Tous les horodatages sont en TIMESTAMPTZ (stockés en UTC)
 
-CREATE TABLE IF NOT EXISTS actif (
-    id          SERIAL PRIMARY KEY,
-    symbole     TEXT NOT NULL UNIQUE,
-    nom         TEXT NOT NULL,
-    decimales   SMALLINT NOT NULL DEFAULT 8 CHECK (decimales BETWEEN 0 AND 18),
-    est_actif   BOOLEAN NOT NULL DEFAULT TRUE,
-    cree_le     TIMESTAMPTZ NOT NULL DEFAULT now()
+-- --------------------------------------------------------------------------
+-- Retrait des tables de la première ébauche, remplacées par crypto / crypto_valeur
+-- --------------------------------------------------------------------------
+
+-- L'ancienne table operation était rattachée à un portefeuille ; la nouvelle est
+-- rattachée à l'utilisateur. Le test sur portefeuille_id ne retire que l'ancienne
+-- forme : une base déjà migrée garde ses opérations, même si ce fichier est rejoué.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'operation'
+          AND column_name = 'portefeuille_id'
+    ) THEN
+        DROP TABLE operation CASCADE;
+    END IF;
+END $$;
+
+DROP TABLE IF EXISTS cours CASCADE;
+DROP TABLE IF EXISTS portefeuille CASCADE;
+DROP TABLE IF EXISTS actif CASCADE;
+
+-- --------------------------------------------------------------------------
+-- Référentiel
+-- --------------------------------------------------------------------------
+
+-- Crypto-actifs suivis. L'identifiant est le symbole d'usage (BTC, ETH...).
+-- identifiant_coingecko est indispensable : le symbole seul ne permet pas
+-- d'interroger l'API des cours, qui attend 'bitcoin' et non 'BTC'.
+CREATE TABLE IF NOT EXISTS crypto (
+    id                     TEXT PRIMARY KEY,
+    libelle                TEXT NOT NULL,
+    identifiant_coingecko  TEXT UNIQUE,
+    est_suivi              BOOLEAN NOT NULL DEFAULT TRUE,
+    cree_le                TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT crypto_id_majuscules CHECK (id = upper(id))
 );
 
-CREATE TABLE IF NOT EXISTS cours (
-    id          BIGSERIAL PRIMARY KEY,
-    actif_id    INTEGER NOT NULL REFERENCES actif(id) ON DELETE CASCADE,
-    devise      TEXT NOT NULL DEFAULT 'EUR',
-    prix        NUMERIC(38, 18) NOT NULL CHECK (prix >= 0),
-    source      TEXT NOT NULL,
-    horodatage  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (actif_id, devise, source, horodatage)
+-- Adresse du logo, renseignee au premier affichage puis reutilisee : la table
+-- n'a plus besoin d'interroger la source des cours pour retrouver l'image.
+ALTER TABLE crypto ADD COLUMN IF NOT EXISTS logo_url TEXT;
+
+-- Paire Binance en euro, utilisee pour relever la valeur moyenne journaliere
+ALTER TABLE crypto ADD COLUMN IF NOT EXISTS paire_binance TEXT;
+
+-- Plateformes d'échange sur lesquelles les opérations sont passées
+CREATE TABLE IF NOT EXISTS plateforme (
+    id       TEXT PRIMARY KEY,
+    libelle  TEXT NOT NULL,
+    cree_le  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_cours_actif_horodatage
-    ON cours (actif_id, devise, horodatage DESC);
+-- --------------------------------------------------------------------------
+-- Valeurs quotidiennes
+-- --------------------------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS portefeuille (
-    id                SERIAL PRIMARY KEY,
-    nom               TEXT NOT NULL UNIQUE,
-    devise_reference  TEXT NOT NULL DEFAULT 'EUR',
-    cree_le           TIMESTAMPTZ NOT NULL DEFAULT now()
+-- Une ligne par crypto et par jour. Le VWAP est la valeur de référence retenue :
+-- c'est la cotation moyenne journalière admise par le BOFiP pour la déclaration.
+-- La bougie complète est conservée parce qu'elle arrive dans la même réponse d'API
+-- et qu'elle sera irrécupérable si la paire disparaît de la plateforme.
+CREATE TABLE IF NOT EXISTS crypto_valeur (
+    id_crypto      TEXT NOT NULL REFERENCES crypto(id) ON DELETE CASCADE,
+    date           DATE NOT NULL,
+    devise         TEXT NOT NULL DEFAULT 'EUR',
+    source         TEXT NOT NULL,
+    vwap           NUMERIC(38, 18) CHECK (vwap >= 0),
+    ouverture      NUMERIC(38, 18) CHECK (ouverture >= 0),
+    haut           NUMERIC(38, 18) CHECK (haut >= 0),
+    bas            NUMERIC(38, 18) CHECK (bas >= 0),
+    cloture        NUMERIC(38, 18) CHECK (cloture >= 0),
+    volume         NUMERIC(38, 18) CHECK (volume >= 0),
+    volume_devise  NUMERIC(38, 18) CHECK (volume_devise >= 0),
+    releve_le      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (id_crypto, date),
+    -- Un VWAP hors de la fourchette du jour ne peut venir que d'un import cassé
+    CONSTRAINT crypto_valeur_vwap_coherent CHECK (
+        vwap IS NULL OR bas IS NULL OR haut IS NULL OR (vwap >= bas AND vwap <= haut)
+    ),
+    CONSTRAINT crypto_valeur_fourchette CHECK (
+        bas IS NULL OR haut IS NULL OR bas <= haut
+    )
 );
 
-CREATE TABLE IF NOT EXISTS operation (
-    id               BIGSERIAL PRIMARY KEY,
-    portefeuille_id  INTEGER NOT NULL REFERENCES portefeuille(id) ON DELETE CASCADE,
-    actif_id         INTEGER NOT NULL REFERENCES actif(id),
-    sens             TEXT NOT NULL CHECK (sens IN ('achat', 'vente')),
-    quantite         NUMERIC(38, 18) NOT NULL CHECK (quantite > 0),
-    prix_unitaire    NUMERIC(38, 18) NOT NULL CHECK (prix_unitaire >= 0),
-    devise           TEXT NOT NULL DEFAULT 'EUR',
-    frais            NUMERIC(38, 18) NOT NULL DEFAULT 0 CHECK (frais >= 0),
-    horodatage       TIMESTAMPTZ NOT NULL DEFAULT now(),
-    note             TEXT
-);
+CREATE INDEX IF NOT EXISTS idx_crypto_valeur_date
+    ON crypto_valeur (date DESC);
 
-CREATE INDEX IF NOT EXISTS idx_operation_portefeuille
-    ON operation (portefeuille_id, horodatage DESC);
-
--- Positions calculées à partir des opérations (aucun stock dénormalisé)
-CREATE OR REPLACE VIEW position AS
-SELECT
-    o.portefeuille_id,
-    o.actif_id,
-    a.symbole,
-    SUM(CASE WHEN o.sens = 'achat' THEN o.quantite ELSE -o.quantite END) AS quantite,
-    SUM(CASE WHEN o.sens = 'achat' THEN o.quantite * o.prix_unitaire + o.frais ELSE 0 END) AS cout_total,
-    o.devise
-FROM operation o
-JOIN actif a ON a.id = o.actif_id
-GROUP BY o.portefeuille_id, o.actif_id, a.symbole, o.devise;
-
+-- --------------------------------------------------------------------------
 -- Comptes utilisateurs
+-- --------------------------------------------------------------------------
 -- Deux modes d'authentification possibles, cumulables sur un meme compte :
 --   - mot de passe local : mot_de_passe_hash renseigne (empreinte scrypt, jamais le mot de passe)
 --   - compte Google      : google_sub renseigne (claim "sub" du jeton Google, stable et unique)
@@ -85,6 +116,70 @@ CREATE TABLE IF NOT EXISTS utilisateur (
 CREATE INDEX IF NOT EXISTS idx_utilisateur_actif
     ON utilisateur (est_actif);
 
+-- Droit d'administration. Ajout separe pour rester applicable
+-- sur une base ou la table utilisateur existe deja.
+ALTER TABLE utilisateur
+    ADD COLUMN IF NOT EXISTS est_admin BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Devise d'affichage choisie par l'utilisateur. Ne concerne que l'affichage :
+-- les valeurs retenues pour la déclaration restent en euro.
+ALTER TABLE utilisateur
+    ADD COLUMN IF NOT EXISTS devise TEXT NOT NULL DEFAULT 'EUR';
+
+ALTER TABLE utilisateur
+    DROP CONSTRAINT IF EXISTS utilisateur_devise;
+ALTER TABLE utilisateur
+    ADD CONSTRAINT utilisateur_devise CHECK (devise IN ('EUR', 'USD'));
+
+-- Autorisation explicite de se connecter par Google. Par défaut fermée :
+-- un compte Google inconnu ne doit pas pouvoir se créer un accès tout seul.
+-- L'administrateur ouvre le droit, la première connexion rattache google_sub.
+ALTER TABLE utilisateur
+    ADD COLUMN IF NOT EXISTS autorise_google BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Blocage après échecs de connexion par mot de passe.
+-- Ne concerne pas la connexion Google, qui ne passe pas par un mot de passe.
+ALTER TABLE utilisateur
+    ADD COLUMN IF NOT EXISTS est_bloque BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE utilisateur
+    ADD COLUMN IF NOT EXISTS tentatives_echouees SMALLINT NOT NULL DEFAULT 0;
+
+-- Compte créé par un administrateur dont le mot de passe reste à définir
+-- par la personne elle-même, via le lien qui lui est transmis.
+ALTER TABLE utilisateur
+    ADD COLUMN IF NOT EXISTS mot_de_passe_a_definir BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Un compte doit toujours annoncer par où on y entre, même si l'accès
+-- n'est pas encore utilisable : mot de passe posé, compte Google rattaché,
+-- droit Google ouvert, ou mot de passe en attente de définition.
+ALTER TABLE utilisateur
+    DROP CONSTRAINT IF EXISTS utilisateur_authentification;
+ALTER TABLE utilisateur
+    ADD CONSTRAINT utilisateur_authentification CHECK (
+        mot_de_passe_hash IS NOT NULL
+        OR google_sub IS NOT NULL
+        OR autorise_google
+        OR mot_de_passe_a_definir
+    );
+
+-- Demandes de réinitialisation de mot de passe. Comme pour les sessions,
+-- seule l'empreinte du jeton est stockée : le lien envoyé par courriel
+-- n'est reconstituable depuis la base par personne.
+CREATE TABLE IF NOT EXISTS reinitialisation (
+    jeton_hash      TEXT PRIMARY KEY,
+    utilisateur_id  INTEGER NOT NULL REFERENCES utilisateur(id) ON DELETE CASCADE,
+    cree_le         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expire_le       TIMESTAMPTZ NOT NULL,
+    utilise_le      TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_reinitialisation_utilisateur
+    ON reinitialisation (utilisateur_id);
+
+CREATE INDEX IF NOT EXISTS idx_reinitialisation_expiration
+    ON reinitialisation (expire_le);
+
 -- Sessions ouvertes. Seule l'empreinte du jeton est stockee :
 -- une fuite de la base ne permet pas de rejouer une session.
 CREATE TABLE IF NOT EXISTS session (
@@ -100,7 +195,72 @@ CREATE INDEX IF NOT EXISTS idx_session_utilisateur
 CREATE INDEX IF NOT EXISTS idx_session_expiration
     ON session (expire_le);
 
--- Droit d'administration. Ajout separe pour rester applicable
--- sur une base ou la table utilisateur existe deja.
-ALTER TABLE utilisateur
-    ADD COLUMN IF NOT EXISTS est_admin BOOLEAN NOT NULL DEFAULT FALSE;
+-- --------------------------------------------------------------------------
+-- Opérations
+-- --------------------------------------------------------------------------
+
+-- Achats et ventes simples, par utilisateur. Volontairement limité à ce cas :
+-- ni transfert, ni staking, ni échange d'une crypto contre une autre.
+CREATE TABLE IF NOT EXISTS operation (
+    id              BIGSERIAL PRIMARY KEY,
+    utilisateur_id  INTEGER NOT NULL REFERENCES utilisateur(id) ON DELETE CASCADE,
+    horodatage      TIMESTAMPTZ NOT NULL,
+    sens            TEXT NOT NULL CHECK (sens IN ('achat', 'vente')),
+    id_crypto       TEXT NOT NULL REFERENCES crypto(id),
+    quantite        NUMERIC(38, 18) NOT NULL CHECK (quantite > 0),
+    plateforme_id   TEXT REFERENCES plateforme(id),
+    -- Hors de ta liste, mais laissé facultatif : sans le prix réellement payé ou
+    -- encaissé en euro, aucune plus-value ne peut être calculée pour la 2086.
+    prix_unitaire   NUMERIC(38, 18) CHECK (prix_unitaire >= 0),
+    frais           NUMERIC(38, 18) NOT NULL DEFAULT 0 CHECK (frais >= 0),
+    cree_le         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_operation_utilisateur
+    ON operation (utilisateur_id, horodatage DESC);
+
+CREATE INDEX IF NOT EXISTS idx_operation_crypto
+    ON operation (utilisateur_id, id_crypto);
+
+-- Positions calculées à partir des opérations (aucun stock dénormalisé)
+DROP VIEW IF EXISTS position CASCADE;
+CREATE OR REPLACE VIEW position AS
+SELECT
+    o.utilisateur_id,
+    o.id_crypto,
+    c.libelle,
+    SUM(CASE WHEN o.sens = 'achat' THEN o.quantite ELSE -o.quantite END) AS quantite,
+    SUM(CASE WHEN o.sens = 'achat'
+             THEN o.quantite * COALESCE(o.prix_unitaire, 0) + o.frais
+             ELSE 0 END) AS cout_total
+FROM operation o
+JOIN crypto c ON c.id = o.id_crypto
+GROUP BY o.utilisateur_id, o.id_crypto, c.libelle;
+
+-- --------------------------------------------------------------------------
+-- Données de référence
+-- --------------------------------------------------------------------------
+
+INSERT INTO crypto (id, libelle, identifiant_coingecko) VALUES
+    ('BTC',  'Bitcoin',   'bitcoin'),
+    ('ETH',  'Ethereum',  'ethereum'),
+    ('SOL',  'Solana',    'solana'),
+    ('XRP',  'XRP',       'ripple'),
+    ('ADA',  'Cardano',   'cardano'),
+    ('BNB',  'BNB',       'binancecoin'),
+    ('DOGE', 'Dogecoin',  'dogecoin'),
+    ('LINK', 'Chainlink', 'chainlink')
+ON CONFLICT (id) DO UPDATE
+    SET libelle = EXCLUDED.libelle,
+        identifiant_coingecko = EXCLUDED.identifiant_coingecko;
+
+UPDATE crypto SET paire_binance = id || 'EUR' WHERE paire_binance IS NULL;
+
+INSERT INTO plateforme (id, libelle) VALUES
+    ('binance',  'Binance'),
+    ('kraken',   'Kraken'),
+    ('coinbase', 'Coinbase'),
+    ('bitstamp', 'Bitstamp'),
+    ('bitpanda', 'Bitpanda'),
+    ('autre',    'Autre')
+ON CONFLICT (id) DO UPDATE SET libelle = EXCLUDED.libelle;

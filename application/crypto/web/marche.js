@@ -1,27 +1,19 @@
-// Cours et actualites : bloc de page quand personne n'est connecte,
-// encart dans l'en-tete a cote du bloc utilisateur quand on l'est.
+// Cours et actualites : blocs defilants de la page quand personne n'est connecte,
+// bandeau de cours dans l'en-tete a cote du bloc utilisateur quand on l'est.
 (function () {
     'use strict';
 
     var C = window.Crypto;
     var RAFRAICHISSEMENT = 2 * 60 * 1000;
+    var NOMBRE_ACTUS = 12;
 
     var donnees = { cours: null, actus: null };
     var minuterie = null;
+    var defilements = null;
+    var estConnecte = false;
 
     // --- Mise en forme ----------------------------------------------------
-    function formaterPrix(valeur, devise) {
-        var nombre = Number(valeur);
-        if (!isFinite(nombre)) return '—';
-        // Les cryptos a faible valeur unitaire ont besoin de plus de decimales
-        var decimales = nombre >= 100 ? 0 : (nombre >= 1 ? 2 : 6);
-        return new Intl.NumberFormat('fr-FR', {
-            style: 'currency',
-            currency: devise || 'EUR',
-            minimumFractionDigits: decimales,
-            maximumFractionDigits: decimales,
-        }).format(nombre);
-    }
+    var formaterPrix = C.formaterMontant;
 
     function formaterVariation(valeur) {
         if (valeur === null || valeur === undefined) return '—';
@@ -47,6 +39,59 @@
         return 'il y a ' + jours + (jours > 1 ? ' jours' : ' jour');
     }
 
+    // --- Defilement horizontal --------------------------------------------
+    // Les fleches font avancer la piste d'un ecran complet de cartes.
+    function brancherDefilement(idPiste, idPrecedent, idSuivant) {
+        var piste = document.getElementById(idPiste);
+        var precedent = document.getElementById(idPrecedent);
+        var suivant = document.getElementById(idSuivant);
+        if (!piste || !precedent || !suivant) return function () { /* piste absente de la page */ };
+
+        function pas() {
+            var premiere = piste.firstElementChild;
+            if (!premiere) return piste.clientWidth;
+
+            var ecart = 0;
+            if (piste.children.length > 1) {
+                ecart = piste.children[1].getBoundingClientRect().left
+                    - piste.children[0].getBoundingClientRect().right;
+            }
+
+            var largeur = premiere.getBoundingClientRect().width + Math.max(0, ecart);
+            if (largeur <= 0) return piste.clientWidth;
+
+            var visibles = Math.max(1, Math.floor(piste.clientWidth / largeur));
+            return largeur * visibles;
+        }
+
+        function actualiser() {
+            var debordement = piste.scrollWidth - piste.clientWidth;
+            var defilable = debordement > 2;
+            precedent.disabled = !defilable || piste.scrollLeft <= 1;
+            suivant.disabled = !defilable || piste.scrollLeft >= debordement - 1;
+        }
+
+        precedent.addEventListener('click', function () {
+            piste.scrollBy({ left: -pas(), behavior: 'smooth' });
+        });
+        suivant.addEventListener('click', function () {
+            piste.scrollBy({ left: pas(), behavior: 'smooth' });
+        });
+        piste.addEventListener('scroll', actualiser);
+        window.addEventListener('resize', actualiser);
+
+        return actualiser;
+    }
+
+    function preparerDefilements() {
+        if (defilements) return defilements;
+        defilements = {
+            cours: brancherDefilement('piste-cours', 'marche-precedent', 'marche-suivant'),
+            actus: brancherDefilement('piste-actus', 'actus-precedent', 'actus-suivant'),
+        };
+        return defilements;
+    }
+
     // --- Rendu ------------------------------------------------------------
     function carteCours(actif, devise) {
         var carte = document.createElement('article');
@@ -55,15 +100,22 @@
         var haut = document.createElement('div');
         haut.className = 'carte-cours-haut';
 
+        // Le logo est servi par l'API a partir du symbole, qui est aussi
+        // l'identifiant de la crypto dans le referentiel.
+        var identite = document.createElement('span');
+        identite.className = 'carte-identite';
+        identite.appendChild(C.logoCrypto(actif.symbole, 22));
+
         var symbole = document.createElement('span');
         symbole.className = 'carte-symbole';
         symbole.textContent = actif.symbole;
+        identite.appendChild(symbole);
 
         var variation = document.createElement('span');
         variation.className = classeVariation(actif.variation_24h);
         variation.textContent = formaterVariation(actif.variation_24h);
 
-        haut.appendChild(symbole);
+        haut.appendChild(identite);
         haut.appendChild(variation);
 
         var nom = document.createElement('p');
@@ -80,174 +132,176 @@
         return carte;
     }
 
-    function ligneActualite(article) {
-        var element = document.createElement('li');
+    function carteActualite(article) {
+        var carte = document.createElement('article');
+        carte.className = 'carte-actu';
 
         var lien = document.createElement('a');
+        lien.className = 'carte-actu-titre';
         lien.href = article.lien;
         lien.target = '_blank';
         lien.rel = 'noopener noreferrer';
         lien.textContent = article.titre;
 
-        var meta = document.createElement('span');
+        var meta = document.createElement('p');
         meta.className = 'actu-meta';
         var age = ilYA(article.publie_le);
         meta.textContent = article.source + (age ? ' · ' + age : '');
 
-        element.appendChild(lien);
-        element.appendChild(meta);
+        carte.appendChild(lien);
+        carte.appendChild(meta);
+        return carte;
+    }
+
+    function messageVide(texte) {
+        var element = document.createElement('p');
+        element.className = 'piste-vide';
+        element.textContent = texte;
         return element;
     }
 
-    function rendreSection() {
-        var section = document.getElementById('section-marche');
-        if (!section) return;
-
-        var grille = document.getElementById('grille-cours');
+    function rendreSections() {
+        var pisteCours = document.getElementById('piste-cours');
+        var pisteActus = document.getElementById('piste-actus');
         var horodatage = document.getElementById('marche-horodatage');
-        var liste = document.getElementById('liste-actus');
+        if (!pisteCours || !pisteActus) return;
 
+        var boutons = preparerDefilements();
+
+        C.vider(pisteCours);
         if (donnees.cours) {
-            C.vider(grille);
             donnees.cours.actifs.forEach(function (actif) {
-                grille.appendChild(carteCours(actif, donnees.cours.devise));
+                pisteCours.appendChild(carteCours(actif, donnees.cours.devise));
             });
-            horodatage.textContent = 'Source ' + donnees.cours.source + ' · relevé ' + ilYA(donnees.cours.releve_le);
+            if (horodatage) {
+                horodatage.textContent = 'Source ' + donnees.cours.source
+                    + ' · relevé ' + ilYA(donnees.cours.releve_le);
+            }
         } else {
-            horodatage.textContent = 'Cours momentanément indisponibles.';
+            pisteCours.appendChild(messageVide('Cours momentanément indisponibles.'));
+            if (horodatage) horodatage.textContent = '';
         }
 
-        C.vider(liste);
+        C.vider(pisteActus);
         if (donnees.actus) {
             donnees.actus.articles.forEach(function (article) {
-                liste.appendChild(ligneActualite(article));
+                pisteActus.appendChild(carteActualite(article));
             });
         } else {
-            var vide = document.createElement('li');
-            vide.className = 'actu-vide';
-            vide.textContent = 'Actualités momentanément indisponibles.';
-            liste.appendChild(vide);
+            pisteActus.appendChild(messageVide('Actualités momentanément indisponibles.'));
         }
+
+        boutons.cours();
+        boutons.actus();
     }
 
     function rendreEncart() {
         var encart = document.getElementById('encart-marche');
         if (!encart) return;
         C.vider(encart);
+        if (!donnees.cours) return;
 
-        if (donnees.cours) {
-            var ticker = document.createElement('div');
-            ticker.className = 'ticker';
+        var ticker = document.createElement('div');
+        ticker.className = 'ticker';
 
-            donnees.cours.actifs.slice(0, 2).forEach(function (actif) {
-                var bloc = document.createElement('span');
-                bloc.className = 'ticker-actif';
+        donnees.cours.actifs.slice(0, 2).forEach(function (actif) {
+            var bloc = document.createElement('span');
+            bloc.className = 'ticker-actif';
 
-                var symbole = document.createElement('span');
-                symbole.className = 'ticker-symbole';
-                symbole.textContent = actif.symbole;
+            var symbole = document.createElement('span');
+            symbole.className = 'ticker-symbole';
+            symbole.textContent = actif.symbole;
 
-                var prix = document.createElement('span');
-                prix.className = 'ticker-prix';
-                prix.textContent = formaterPrix(actif.prix, donnees.cours.devise);
+            var prix = document.createElement('span');
+            prix.className = 'ticker-prix';
+            prix.textContent = formaterPrix(actif.prix, donnees.cours.devise);
 
-                var variation = document.createElement('span');
-                variation.className = classeVariation(actif.variation_24h);
-                variation.textContent = formaterVariation(actif.variation_24h);
+            var variation = document.createElement('span');
+            variation.className = classeVariation(actif.variation_24h);
+            variation.textContent = formaterVariation(actif.variation_24h);
 
-                bloc.appendChild(symbole);
-                bloc.appendChild(prix);
-                bloc.appendChild(variation);
-                ticker.appendChild(bloc);
-            });
-
-            encart.appendChild(ticker);
-        }
-
-        // Bouton d'ouverture du volet d'actualites
-        var conteneur = document.createElement('div');
-        conteneur.className = 'menu-compte';
-
-        var bouton = document.createElement('button');
-        bouton.type = 'button';
-        bouton.className = 'bouton bouton-entete bouton-actus';
-        bouton.textContent = 'Actus';
-        bouton.setAttribute('aria-haspopup', 'true');
-        bouton.setAttribute('aria-expanded', 'false');
-
-        var volet = document.createElement('div');
-        volet.className = 'menu-deroulant volet-actus';
-        volet.hidden = true;
-
-        var titre = document.createElement('p');
-        titre.className = 'menu-role';
-        titre.textContent = 'Actualités crypto';
-        volet.appendChild(titre);
-
-        var liste = document.createElement('ul');
-        liste.className = 'liste-actus liste-actus-volet';
-        if (donnees.actus) {
-            donnees.actus.articles.slice(0, 6).forEach(function (article) {
-                liste.appendChild(ligneActualite(article));
-            });
-        } else {
-            var vide = document.createElement('li');
-            vide.className = 'actu-vide';
-            vide.textContent = 'Actualités momentanément indisponibles.';
-            liste.appendChild(vide);
-        }
-        volet.appendChild(liste);
-
-        bouton.addEventListener('click', function (evenement) {
-            evenement.stopPropagation();
-            volet.hidden = !volet.hidden;
-            bouton.setAttribute('aria-expanded', String(!volet.hidden));
+            bloc.appendChild(symbole);
+            bloc.appendChild(prix);
+            bloc.appendChild(variation);
+            ticker.appendChild(bloc);
         });
 
-        document.addEventListener('click', function (evenement) {
-            if (!volet.hidden && !conteneur.contains(evenement.target)) {
-                volet.hidden = true;
-                bouton.setAttribute('aria-expanded', 'false');
-            }
-        });
-
-        conteneur.appendChild(bouton);
-        conteneur.appendChild(volet);
-        encart.appendChild(conteneur);
+        encart.appendChild(ticker);
     }
 
     // --- Chargement -------------------------------------------------------
-    function charger() {
-        return Promise.all([
-            C.appeler('/marche/cours').catch(function () { return null; }),
-            C.appeler('/actualites?limite=8').catch(function () { return null; }),
-        ]).then(function (resultats) {
-            if (resultats[0]) donnees.cours = resultats[0];
-            if (resultats[1]) donnees.actus = resultats[1];
+    // Les cours sont demandes dans la devise choisie par l'utilisateur :
+    // la conversion est faite par la source, jamais dans le navigateur.
+    // forcer : rafraichissement demande par le visiteur. L'API raccourcit alors
+    // son cache sans le supprimer, ce qui protege la source d'un clic en rafale.
+    function chargerCours(forcer) {
+        return C.appeler('/marche/cours?devise=' + C.devise().toLowerCase() + (forcer ? '&forcer=1' : ''))
+            .then(function (resultat) { donnees.cours = resultat; })
+            .catch(function () { /* la derniere valeur connue reste affichee */ });
+    }
+
+    function chargerActus(forcer) {
+        return C.appeler('/actualites?limite=' + NOMBRE_ACTUS + (forcer ? '&forcer=1' : ''))
+            .then(function (resultat) { donnees.actus = resultat; })
+            .catch(function () { /* la derniere valeur connue reste affichee */ });
+    }
+
+    function charger(forcer) {
+        return Promise.all([chargerCours(forcer), chargerActus(forcer)]);
+    }
+
+    function brancherRafraichir(identifiant, chargement) {
+        var bouton = document.getElementById(identifiant);
+        if (!bouton) return;
+
+        bouton.addEventListener('click', function () {
+            bouton.disabled = true;
+            bouton.classList.add('fleche-tourne');
+            chargement(true)
+                .then(rendre)
+                .finally(function () {
+                    bouton.disabled = false;
+                    bouton.classList.remove('fleche-tourne');
+                });
         });
     }
 
-    // connecte === true : encart dans l'en-tete. Sinon : bloc dans la page.
+    function rendre() {
+        if (estConnecte) rendreEncart();
+        else rendreSections();
+    }
+
+    // connecte === true : bandeau dans l'en-tete. Sinon : blocs defilants de la page.
     function appliquer(connecte) {
-        var section = document.getElementById('section-marche');
+        estConnecte = !!connecte;
+
+        var sectionMarche = document.getElementById('section-marche');
+        var sectionActus = document.getElementById('section-actus');
         var encart = document.getElementById('encart-marche');
 
-        if (section) section.hidden = !!connecte;
-        if (encart) encart.hidden = !connecte;
+        if (sectionMarche) sectionMarche.hidden = estConnecte;
+        if (sectionActus) sectionActus.hidden = estConnecte;
+        if (encart) encart.hidden = !estConnecte;
 
-        charger().then(function () {
-            if (connecte) rendreEncart();
-            else rendreSection();
-        });
+        charger().then(rendre);
 
         if (minuterie) clearInterval(minuterie);
         minuterie = setInterval(function () {
-            charger().then(function () {
-                if (connecte) rendreEncart();
-                else rendreSection();
-            });
+            charger().then(rendre);
         }, RAFRAICHISSEMENT);
     }
 
-    window.Marche = { appliquer: appliquer };
+    // Changement de devise : les cours sont redemandes, pas reconvertis sur place
+    C.surChangementDevise(function () {
+        chargerCours().then(rendre);
+    });
+
+    brancherRafraichir('marche-rafraichir', chargerCours);
+    brancherRafraichir('actus-rafraichir', chargerActus);
+
+    window.Marche = {
+        appliquer: appliquer,
+        formaterVariation: formaterVariation,
+        classeVariation: classeVariation,
+    };
 })();

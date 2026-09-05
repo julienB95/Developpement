@@ -17,6 +17,43 @@
 
     <div class="entete-droite">
         <div class="encart-marche" id="encart-marche" hidden></div>
+
+
+        <!-- Devise d'affichage des montants : réglage du compte une fois connecté -->
+        <button type="button" class="devise" id="bouton-devise">
+            <span id="devise-symbole" aria-hidden="true">€</span>
+        </button>
+        <!-- Date du jour, heure de Paris et heure de New York -->
+        <div class="horloge" id="horloge">
+            <span class="horloge-jour" id="horloge-jour"></span>
+
+            <span class="horloge-heure" title="Heure de Paris">
+                <svg class="drapeau" viewBox="0 0 18 12" role="img" aria-label="France">
+                    <rect width="6" height="12" fill="#002654"></rect>
+                    <rect x="6" width="6" height="12" fill="#ffffff"></rect>
+                    <rect x="12" width="6" height="12" fill="#ed2939"></rect>
+                </svg>
+                <span id="horloge-paris">--:--:--</span>
+            </span>
+
+            <span class="horloge-heure" title="Heure de New York (côte est)">
+                <svg class="drapeau" viewBox="0 0 18 12" role="img" aria-label="États-Unis, côte est">
+                    <rect width="18" height="12" fill="#ffffff"></rect>
+                    <g fill="#b22234">
+                        <rect y="0" width="18" height="0.92"></rect>
+                        <rect y="1.85" width="18" height="0.92"></rect>
+                        <rect y="3.69" width="18" height="0.92"></rect>
+                        <rect y="5.54" width="18" height="0.92"></rect>
+                        <rect y="7.38" width="18" height="0.92"></rect>
+                        <rect y="9.23" width="18" height="0.92"></rect>
+                        <rect y="11.08" width="18" height="0.92"></rect>
+                    </g>
+                    <rect width="7.2" height="6.46" fill="#3c3b6e"></rect>
+                </svg>
+                <span id="horloge-newyork">--:--:--</span>
+            </span>
+        </div>
+
         <nav class="compte" id="bloc-compte" aria-live="polite"></nav>
     </div>
 </header>
@@ -28,13 +65,16 @@
 
     <h1>Administration</h1>
 
-    <div class="onglets onglets-page" role="tablist">
-        <button type="button" class="onglet actif" role="tab" aria-selected="true">Utilisateurs</button>
+    <div class="onglets onglets-page onglets-larges" role="tablist" id="onglets-administration">
+        <button type="button" class="onglet actif" role="tab" aria-selected="true" data-section="utilisateurs">Utilisateurs</button>
+        <button type="button" class="onglet" role="tab" aria-selected="false" data-section="cryptos">Cryptos</button>
+        <button type="button" class="onglet" role="tab" aria-selected="false" data-section="plateformes">Plateformes</button>
+        <button type="button" class="onglet" role="tab" aria-selected="false" data-section="valeurs">Valeurs</button>
     </div>
 
     <p class="erreur" id="erreur-page" role="alert" hidden></p>
 
-    <section class="espace">
+    <section class="espace" id="section-utilisateurs">
         <h2>Utilisateurs</h2>
         <p class="espace-vide" id="chargement">Chargement…</p>
 
@@ -47,9 +87,133 @@
                         <th scope="col">Créé le</th>
                         <th scope="col">Actif</th>
                         <th scope="col">Administrateur</th>
+                        <th scope="col">Google</th>
+                        <th scope="col">Blocage</th>
                     </tr>
                 </thead>
                 <tbody id="corps-utilisateurs"></tbody>
+            </table>
+        </div>
+
+        <div class="zone-ajout">
+            <button type="button" class="bouton-rond" id="bouton-ajout-utilisateur"
+                    title="Créer un utilisateur" aria-label="Créer un utilisateur">
+                <span aria-hidden="true">+</span>
+            </button>
+        </div>
+    </section>
+
+    <section class="espace" id="section-cryptos" hidden>
+        <h2>Cryptos</h2>
+        <p class="aide">
+            Le référentiel sert de base à tout le reste : les cours affichés, les opérations
+            et les valeurs quotidiennes. L'identifiant CoinGecko sert aux cours en direct,
+            la paire Binance au relevé de la valeur moyenne journalière.
+        </p>
+
+        <div class="tableau-defilant">
+            <table class="tableau" id="tableau-cryptos">
+                <thead>
+                    <tr>
+                        <th scope="col">Crypto</th>
+                        <th scope="col">CoinGecko</th>
+                        <th scope="col">Paire Binance</th>
+                        <th scope="col">Suivie</th>
+                        <th scope="col"></th>
+                    </tr>
+                </thead>
+                <tbody id="corps-cryptos"></tbody>
+            </table>
+        </div>
+
+        <div class="zone-ajout">
+            <button type="button" class="bouton-rond" id="bouton-ajout-crypto"
+                    title="Ajouter une crypto" aria-label="Ajouter une crypto">
+                <span aria-hidden="true">+</span>
+            </button>
+        </div>
+    </section>
+
+    <section class="espace" id="section-plateformes" hidden>
+        <h2>Plateformes</h2>
+        <p class="aide">Les plateformes proposées lors de la saisie d'une opération.</p>
+
+        <div class="tableau-defilant">
+            <table class="tableau" id="tableau-plateformes">
+                <thead>
+                    <tr>
+                        <th scope="col">Identifiant</th>
+                        <th scope="col">Libellé</th>
+                        <th scope="col"></th>
+                    </tr>
+                </thead>
+                <tbody id="corps-plateformes"></tbody>
+            </table>
+        </div>
+
+        <div class="zone-ajout">
+            <button type="button" class="bouton-rond" id="bouton-ajout-plateforme"
+                    title="Ajouter une plateforme" aria-label="Ajouter une plateforme">
+                <span aria-hidden="true">+</span>
+            </button>
+        </div>
+    </section>
+
+    <section class="espace" id="section-valeurs" hidden>
+        <h2>Valeurs quotidiennes</h2>
+        <p class="aide">
+            Valeur moyenne journalière pondérée par les volumes (VWAP), en euro, relevée
+            chez Binance. Une journée close n'est jamais réécrite sans le demander.
+        </p>
+
+        <div class="filtres">
+            <div class="champ champ-filtre">
+                <label for="valeurs-crypto">Crypto</label>
+                <select id="valeurs-crypto"></select>
+            </div>
+            <div class="champ champ-filtre">
+                <label for="valeurs-annee">Année</label>
+                <select id="valeurs-annee"></select>
+            </div>
+        </div>
+
+        <div class="encadre-releve">
+            <p class="encadre-titre">Relever une période chez Binance</p>
+            <div class="filtres">
+                <div class="champ champ-filtre">
+                    <label for="releve-debut">Du</label>
+                    <input type="date" id="releve-debut">
+                </div>
+                <div class="champ champ-filtre">
+                    <label for="releve-fin">Au</label>
+                    <input type="date" id="releve-fin">
+                </div>
+                <div class="champ-case">
+                    <div class="champ-case-ligne">
+                        <input type="checkbox" id="releve-ecraser">
+                        <label for="releve-ecraser">Écraser les journées déjà enregistrées</label>
+                    </div>
+                </div>
+                <button type="button" class="bouton bouton-principal" id="bouton-relever">Relever</button>
+            </div>
+            <p class="aide" id="resultat-releve" hidden></p>
+        </div>
+
+        <div class="tableau-defilant">
+            <table class="tableau" id="tableau-valeurs">
+                <thead>
+                    <tr>
+                        <th scope="col">Date</th>
+                        <th scope="col" class="cellule-nombre">VWAP</th>
+                        <th scope="col" class="cellule-nombre">Ouverture</th>
+                        <th scope="col" class="cellule-nombre">Plus haut</th>
+                        <th scope="col" class="cellule-nombre">Plus bas</th>
+                        <th scope="col" class="cellule-nombre">Clôture</th>
+                        <th scope="col">Source</th>
+                        <th scope="col"></th>
+                    </tr>
+                </thead>
+                <tbody id="corps-valeurs"></tbody>
             </table>
         </div>
     </section>
@@ -61,6 +225,7 @@
 
 <script src="/commun.js"></script>
 <script src="/marche.js"></script>
+<script src="/utilisateur.js"></script>
 <script src="/administration.js"></script>
 </body>
 </html>

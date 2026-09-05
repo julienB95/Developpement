@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Nouveau mot de passe — Suivi crypto</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" href="/image/logo.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="entete">
+    <a class="marque" href="/">
+        <span class="marque-signe" aria-hidden="true">₿</span>
+        <span class="marque-texte">Suivi crypto</span>
+    </a>
+</header>
+
+<main class="page-etroite">
+    <h1>Nouveau mot de passe</h1>
+
+    <section class="espace">
+        <p class="erreur" id="erreur-page" role="alert" hidden></p>
+        <p class="succes" id="succes-page" role="status" hidden></p>
+
+        <form class="formulaire" id="formulaire-reinitialisation" novalidate>
+            <div class="champ">
+                <label for="mot_de_passe">Nouveau mot de passe</label>
+                <input type="password" id="mot_de_passe" name="mot_de_passe" autocomplete="new-password" required>
+                <p class="aide">12 caractères minimum.</p>
+            </div>
+
+            <div class="champ">
+                <label for="confirmation">Confirmation</label>
+                <input type="password" id="confirmation" name="confirmation" autocomplete="new-password" required>
+            </div>
+
+            <button type="submit" class="bouton bouton-principal" id="bouton-valider">Enregistrer</button>
+        </form>
+
+        <p class="aide" id="retour" hidden>
+            <a href="/">Revenir à l'accueil pour vous connecter</a>
+        </p>
+    </section>
+</main>
+
+<footer class="pied">
+    <p>Les informations présentées ne constituent pas un conseil fiscal. Vérifiez vos montants avant déclaration.</p>
+</footer>
+
+<script src="/commun.js"></script>
+<script src="/reinitialisation.js"></script>
+</body>
+</html>

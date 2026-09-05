@@ -7,6 +7,8 @@ const FLUX_PAR_DEFAUT = [
 ];
 
 const DUREE_CACHE = 10 * 60 * 1000;
+// Rafraichissement demande : cache raccourci, jamais supprime
+const DUREE_CACHE_FORCE = 60 * 1000;
 const DELAI_REPONSE = 8000;
 const LIMITE_MAXIMALE = 30;
 
@@ -78,10 +80,10 @@ async function lireFlux(flux) {
     }
 }
 
-async function articles(limiteDemandee) {
+async function articles(limiteDemandee, forcer) {
     const limite = Math.min(Math.max(Number(limiteDemandee) || 8, 1), LIMITE_MAXIMALE);
 
-    if (cache && Date.now() - cache.horodatage < DUREE_CACHE) {
+    if (cache && Date.now() - cache.horodatage < (forcer ? DUREE_CACHE_FORCE : DUREE_CACHE)) {
         return { ...cache.donnees, articles: cache.donnees.articles.slice(0, limite), provenance: 'cache' };
     }
 
