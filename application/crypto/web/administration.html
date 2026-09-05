@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Administration — Utilisateurs</title>
+    <link rel="icon" href="/image/logo.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="entete">
+    <a class="marque" href="/">
+        <span class="marque-signe" aria-hidden="true">₿</span>
+        <span class="marque-texte">Suivi crypto</span>
+    </a>
+
+    <div class="entete-droite">
+        <div class="encart-marche" id="encart-marche" hidden></div>
+        <nav class="compte" id="bloc-compte" aria-live="polite"></nav>
+    </div>
+</header>
+
+<main>
+    <nav class="fil" aria-label="Fil d'ariane">
+        <a href="/">Accueil</a> <span aria-hidden="true">›</span> <span>Administration</span>
+    </nav>
+
+    <h1>Administration</h1>
+
+    <div class="onglets onglets-page" role="tablist">
+        <button type="button" class="onglet actif" role="tab" aria-selected="true">Utilisateurs</button>
+    </div>
+
+    <p class="erreur" id="erreur-page" role="alert" hidden></p>
+
+    <section class="espace">
+        <h2>Utilisateurs</h2>
+        <p class="espace-vide" id="chargement">Chargement…</p>
+
+        <div class="tableau-defilant">
+            <table class="tableau" id="tableau-utilisateurs" hidden>
+                <thead>
+                    <tr>
+                        <th scope="col">Utilisateur</th>
+                        <th scope="col">Connexion</th>
+                        <th scope="col">Créé le</th>
+                        <th scope="col">Actif</th>
+                        <th scope="col">Administrateur</th>
+                    </tr>
+                </thead>
+                <tbody id="corps-utilisateurs"></tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<footer class="pied">
+    <p>Les informations présentées ne constituent pas un conseil fiscal. Vérifiez vos montants avant déclaration.</p>
+</footer>
+
+<script src="/commun.js"></script>
+<script src="/marche.js"></script>
+<script src="/administration.js"></script>
+</body>
+</html>

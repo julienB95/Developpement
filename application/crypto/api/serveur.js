@@ -1,9 +1,13 @@
 // API de l'application crypto - Node natif + PostgreSQL (NAS Synology)
 const http = require('http');
-const db = require('./db');
+const fs = require('fs');
+const path = require('path');
+const db = require('../../_commun/api/db');
 const auth = require('./authentification');
 const google = require('./google');
-const motdepasse = require('./motdepasse');
+const marche = require('./marche');
+const actualites = require('./actualites');
+const motdepasse = require('../../_commun/api/motdepasse');
 
 const PORT = Number(process.env.CRYPTO_API_PORT || 9998);
 const HOTE = process.env.CRYPTO_API_HOST || '127.0.0.1';
@@ -100,6 +104,34 @@ function route(methode, motif, gestionnaire) {
 route('GET', '/api/crypto/sante', async () => {
     const { rows } = await db.requete('SELECT now() AS horodatage');
     return { code: 200, corps: { statut: 'ok', horodatage: rows[0].horodatage } };
+});
+
+// Reglages publics dont l'interface a besoin. Aucun secret ici :
+// l'identifiant client Google est destine a etre expose au navigateur.
+route('GET', '/api/crypto/configuration', async () => ({
+    code: 200,
+    corps: { google_client_id: process.env.GOOGLE_CLIENT_ID || null },
+}));
+
+// --- Marche et actualites (acces public) -----------------------------------
+// Ces deux routes sont ouvertes : les informations sont affichees avant connexion,
+// sur le site comme dans l'application mobile.
+route('GET', '/api/crypto/marche/cours', async ({ url }) => {
+    try {
+        const donnees = await marche.cours(url.searchParams.get('devise'));
+        return { code: 200, corps: donnees };
+    } catch (err) {
+        throw new ErreurClient(err.message, 503);
+    }
+});
+
+route('GET', '/api/crypto/actualites', async ({ url }) => {
+    try {
+        const donnees = await actualites.articles(url.searchParams.get('limite'));
+        return { code: 200, corps: donnees };
+    } catch (err) {
+        throw new ErreurClient(err.message, 503);
+    }
 });
 
 // --- Actifs ----------------------------------------------------------------
@@ -269,6 +301,7 @@ route('POST', '/api/crypto/operations', async ({ corps }) => {
 
 // --- Comptes et connexion --------------------------------------------------
 const COURRIEL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const LONGUEUR_MOT_DE_PASSE = 12;
 
 function exigerCourriel(corps) {
     const courriel = exigerTexte(corps, 'courriel').toLowerCase();
@@ -284,6 +317,7 @@ function comptePublic(ligne) {
         nom: ligne.nom,
         prenom: ligne.prenom,
         est_actif: ligne.est_actif,
+        est_admin: ligne.est_admin,
         cree_le: ligne.cree_le,
     };
 }
@@ -300,6 +334,10 @@ route('POST', '/api/crypto/inscription', async ({ corps }) => {
     const prenom = exigerTexte(corps, 'prenom');
     const enClair = exigerTexte(corps, 'mot_de_passe');
 
+    if (enClair.length < LONGUEUR_MOT_DE_PASSE) {
+        throw new ErreurClient(`Le mot de passe doit faire au moins ${LONGUEUR_MOT_DE_PASSE} caracteres`);
+    }
+
     let empreinte;
     try {
         empreinte = await motdepasse.hacher(enClair);
@@ -310,7 +348,7 @@ route('POST', '/api/crypto/inscription', async ({ corps }) => {
     const { rows } = await db.requete(
         `INSERT INTO utilisateur (courriel, nom, prenom, mot_de_passe_hash)
          VALUES ($1, $2, $3, $4)
-         RETURNING id, courriel, nom, prenom, est_actif, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, cree_le`,
         [courriel, nom, prenom, empreinte]
     );
 
@@ -323,7 +361,7 @@ route('POST', '/api/crypto/connexion', async ({ corps }) => {
     const enClair = exigerTexte(corps, 'mot_de_passe');
 
     const { rows } = await db.requete(
-        `SELECT id, courriel, nom, prenom, est_actif, cree_le, mot_de_passe_hash
+        `SELECT id, courriel, nom, prenom, est_actif, est_admin, cree_le, mot_de_passe_hash
          FROM utilisateur WHERE courriel = $1`,
         [courriel]
     );
@@ -356,7 +394,7 @@ route('POST', '/api/crypto/connexion/google', async ({ corps }) => {
 
     // Compte deja associe a ce compte Google
     let { rows } = await db.requete(
-        `SELECT id, courriel, nom, prenom, est_actif, cree_le
+        `SELECT id, courriel, nom, prenom, est_actif, est_admin, cree_le
          FROM utilisateur WHERE google_sub = $1`,
         [profil.sub]
     );
@@ -366,7 +404,7 @@ route('POST', '/api/crypto/connexion/google', async ({ corps }) => {
         ({ rows } = await db.requete(
             `UPDATE utilisateur SET google_sub = $2
              WHERE courriel = $1 AND google_sub IS NULL
-             RETURNING id, courriel, nom, prenom, est_actif, cree_le`,
+             RETURNING id, courriel, nom, prenom, est_actif, est_admin, cree_le`,
             [profil.courriel, profil.sub]
         ));
     }
@@ -376,7 +414,7 @@ route('POST', '/api/crypto/connexion/google', async ({ corps }) => {
         ({ rows } = await db.requete(
             `INSERT INTO utilisateur (courriel, nom, prenom, google_sub)
              VALUES ($1, $2, $3, $4)
-             RETURNING id, courriel, nom, prenom, est_actif, cree_le`,
+             RETURNING id, courriel, nom, prenom, est_actif, est_admin, cree_le`,
             [profil.courriel, profil.nom || 'Inconnu', profil.prenom || 'Inconnu', profil.sub]
         ));
     }
@@ -406,6 +444,141 @@ route('POST', '/api/crypto/moi/desactivation', async ({ req }) => {
     return { code: 200, corps: { statut: 'compte desactive' } };
 });
 
+// --- Administration : parametrage des utilisateurs -------------------------
+async function exigerAdmin(req) {
+    const utilisateur = await exigerConnexion(req);
+    if (!utilisateur.est_admin) {
+        throw new ErreurClient('Reserve aux administrateurs', 403);
+    }
+    return utilisateur;
+}
+
+function exigerBooleen(corps, champ) {
+    const valeur = corps[champ];
+    if (typeof valeur !== 'boolean') {
+        throw new ErreurClient(`Champ ${champ} : true ou false attendu`);
+    }
+    return valeur;
+}
+
+route('GET', '/api/crypto/administration/utilisateurs', async ({ req }) => {
+    await exigerAdmin(req);
+
+    const { rows } = await db.requete(
+        `SELECT id, courriel, nom, prenom, est_actif, est_admin, cree_le,
+                (mot_de_passe_hash IS NOT NULL) AS a_mot_de_passe,
+                (google_sub IS NOT NULL) AS a_google,
+                (SELECT count(*) FROM session s WHERE s.utilisateur_id = u.id AND s.expire_le > now())::int AS sessions_ouvertes
+         FROM utilisateur u
+         ORDER BY nom, prenom`
+    );
+    return { code: 200, corps: rows };
+});
+
+route('POST', '/api/crypto/administration/utilisateurs/:id/activation', async ({ req, params, corps }) => {
+    const administrateur = await exigerAdmin(req);
+    const id = exigerEntier(params.id, 'id');
+    const estActif = exigerBooleen(corps, 'est_actif');
+
+    // Se desactiver soi-meme fermerait la session en cours : passer par son propre compte
+    if (id === administrateur.id) {
+        throw new ErreurClient('Utilisez votre propre compte pour vous desactiver', 400);
+    }
+
+    const { rows } = await db.requete(
+        `UPDATE utilisateur SET est_actif = $2 WHERE id = $1
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, cree_le`,
+        [id, estActif]
+    );
+    if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
+
+    // Un compte desactive ne doit plus disposer de session valide
+    if (!estActif) await auth.supprimerSessionsUtilisateur(id);
+
+    return { code: 200, corps: rows[0] };
+});
+
+route('POST', '/api/crypto/administration/utilisateurs/:id/administrateur', async ({ req, params, corps }) => {
+    const administrateur = await exigerAdmin(req);
+    const id = exigerEntier(params.id, 'id');
+    const estAdmin = exigerBooleen(corps, 'est_admin');
+
+    // Empeche de se retirer soi-meme le droit et de se verrouiller dehors
+    if (id === administrateur.id) {
+        throw new ErreurClient('Un administrateur ne peut pas modifier son propre droit', 400);
+    }
+
+    if (!estAdmin) {
+        const { rows: restants } = await db.requete(
+            'SELECT count(*)::int AS n FROM utilisateur WHERE est_admin AND est_actif AND id <> $1',
+            [id]
+        );
+        if (restants[0].n === 0) {
+            throw new ErreurClient('Il doit rester au moins un administrateur actif', 400);
+        }
+    }
+
+    const { rows } = await db.requete(
+        `UPDATE utilisateur SET est_admin = $2 WHERE id = $1
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, cree_le`,
+        [id, estAdmin]
+    );
+    if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
+
+    return { code: 200, corps: rows[0] };
+});
+
+// --- Fichiers de l'interface web -------------------------------------------
+const RACINE_WEB = path.resolve(__dirname, '..', 'web');
+// Images partagees entre le site et le mobile, servies sous /image/
+const RACINE_IMAGE = path.resolve(__dirname, '..', '_commun', 'image');
+const PREFIXE_IMAGE = '/image/';
+
+const TYPES_MIME = {
+    '.html': 'text/html; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.webmanifest': 'application/manifest+json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.ico': 'image/x-icon',
+    '.woff2': 'font/woff2',
+};
+
+async function servirFichier(chemin, res) {
+    const demande = chemin === '/' ? '/index.html' : chemin;
+
+    const dansImages = demande.startsWith(PREFIXE_IMAGE);
+    const racine = dansImages ? RACINE_IMAGE : RACINE_WEB;
+    const relatif = dansImages ? demande.slice(PREFIXE_IMAGE.length - 1) : demande;
+
+    // Le chemin resolu doit rester sous sa racine : bloque les remontees ../
+    const fichier = path.resolve(racine, '.' + relatif);
+    if (fichier !== racine && !fichier.startsWith(racine + path.sep)) {
+        return repondre(res, 403, { erreur: 'Acces refuse' });
+    }
+
+    let contenu;
+    try {
+        contenu = await fs.promises.readFile(fichier);
+    } catch (err) {
+        if (err.code === 'ENOENT' || err.code === 'EISDIR') {
+            return repondre(res, 404, { erreur: 'Page introuvable' });
+        }
+        throw err;
+    }
+
+    res.writeHead(200, {
+        'Content-Type': TYPES_MIME[path.extname(fichier).toLowerCase()] || 'application/octet-stream',
+        'Content-Length': contenu.length,
+        'Cache-Control': 'no-cache',
+    });
+    res.end(contenu);
+}
+
 // --- Serveur ---------------------------------------------------------------
 const serveur = http.createServer(async (req, res) => {
     let url;
@@ -422,6 +595,15 @@ const serveur = http.createServer(async (req, res) => {
     const trouvee = correspondances.find(({ r }) => r.methode === req.method);
 
     if (!trouvee) {
+        // Hors API, les requetes de lecture sont servies par les fichiers du site
+        if (!url.pathname.startsWith('/api/') && (req.method === 'GET' || req.method === 'HEAD')) {
+            try {
+                return await servirFichier(url.pathname, res);
+            } catch (err) {
+                console.error('Erreur de lecture de fichier :', err);
+                return repondre(res, 500, { erreur: 'Erreur interne' });
+            }
+        }
         return repondre(res, correspondances.length ? 405 : 404, { erreur: 'Route inconnue' });
     }
 

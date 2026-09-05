@@ -14,21 +14,21 @@ qui complète ce fichier avec ses règles spécifiques.
 
 ```
 application/
-├── commun/          ressources partagées par TOUTES les applications
+├── _commun/         ressources partagées par TOUTES les applications
 │   └── image/
 └── <application>/   une application par dossier (ex. crypto)
     ├── api/         backend et services
-    ├── commun/      ressources partagées par CETTE application uniquement
+    ├── _commun/     ressources partagées par CETTE application uniquement
     │   └── image/
     ├── web/         interface web
     ├── mobile/      interface mobile
     └── CLAUDE.md    règles propres à l'application
 ```
 
-- Une ressource utilisée par plusieurs applications va dans `application/commun/`
-- Une ressource utilisée par une seule application reste dans le `commun/` de cette application
+- Une ressource utilisée par plusieurs applications va dans `application/_commun/`
+- Une ressource utilisée par une seule application reste dans le `_commun/` de cette application
 - Ne crée jamais de dossier ou de fichier en dehors de cette arborescence sans demande explicite
-- Les noms de dossiers et de fichiers sont en minuscules, sans accents ni espaces
+- Les noms de dossiers et de fichiers sont en minuscules, sans accents ni espaces ; le préfixe `_` place les dossiers communs en tête de liste
 
 ## Technique
 
@@ -48,3 +48,10 @@ application/
 
 - Ne commit et ne push jamais sans demande explicite
 - Messages de commit en français, à l'impératif, décrivant le changement réel
+
+## Code partagé
+
+- `application/_commun/api/` contient les briques techniques réutilisables par toutes les applications :
+  `env.js` (lecture du `.env`), `db.js` (pool PostgreSQL), `motdepasse.js` (empreintes scrypt)
+- Ces modules ne contiennent aucune règle métier et ne connaissent aucune table
+- Une application les importe en chemin relatif : `require('../../_commun/api/db')`

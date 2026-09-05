@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Crypto — Suivi des opérations et déclaration fiscale</title>
+    <meta name="description" content="Enregistrez vos achats et ventes de crypto-actifs et préparez votre déclaration d'impôt sur le revenu.">
+    <link rel="icon" href="/image/logo.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="entete">
+    <a class="marque" href="/">
+        <span class="marque-signe" aria-hidden="true">₿</span>
+        <span class="marque-texte">Suivi crypto</span>
+    </a>
+
+    <div class="entete-droite">
+        <!-- Encart cours et actualités, visible uniquement une fois connecté -->
+        <div class="encart-marche" id="encart-marche" hidden></div>
+
+        <nav class="compte" id="bloc-compte" aria-live="polite">
+            <!-- Rempli par commun.js : bouton de connexion, ou pastille du compte -->
+        </nav>
+    </div>
+</header>
+
+<main>
+    <section class="accroche">
+        <h1>Vos opérations crypto, prêtes pour la déclaration</h1>
+        <p class="accroche-texte">
+            Enregistrez chaque achat et chaque vente de crypto-actifs au fil de l'eau.
+            Le jour de la déclaration d'impôt sur le revenu, vos cessions et leurs prix
+            d'acquisition sont déjà rassemblés.
+        </p>
+        <div class="accroche-actions" id="accroche-actions"></div>
+    </section>
+
+    <section class="atouts" aria-label="Fonctionnement">
+        <article class="atout">
+            <h2>Enregistrer</h2>
+            <p>
+                Chaque opération est saisie avec sa date, sa quantité, son prix unitaire
+                et ses frais. Les montants sont conservés au centime près, sans arrondi
+                intermédiaire.
+            </p>
+        </article>
+        <article class="atout">
+            <h2>Suivre</h2>
+            <p>
+                Vos positions sont recalculées à partir de vos opérations, jamais saisies
+                à la main. Le prix total d'acquisition de votre portefeuille reste
+                disponible à tout moment.
+            </p>
+        </article>
+        <article class="atout">
+            <h2>Déclarer</h2>
+            <p>
+                Les cessions de l'année et leur prix d'acquisition sont regroupés pour
+                remplir le formulaire 2086, annexe de votre déclaration de revenus.
+            </p>
+        </article>
+    </section>
+
+    <section class="marche" id="section-marche" hidden>
+        <div class="marche-entete">
+            <h2>Le marché</h2>
+            <p class="marche-horodatage" id="marche-horodatage"></p>
+        </div>
+
+        <div class="grille-cours" id="grille-cours"></div>
+
+        <h2 class="titre-actus">Actualités</h2>
+        <ul class="liste-actus" id="liste-actus"></ul>
+    </section>
+
+    <section class="espace" id="espace-connecte" hidden>
+        <h2>Vos opérations</h2>
+        <p class="espace-vide">
+            Aucune opération enregistrée pour le moment. La saisie des achats et des ventes
+            arrive à la prochaine étape du développement.
+        </p>
+    </section>
+</main>
+
+<footer class="pied">
+    <p>Les informations présentées ne constituent pas un conseil fiscal. Vérifiez vos montants avant déclaration.</p>
+</footer>
+
+<dialog class="dialogue" id="dialogue-connexion" aria-labelledby="titre-dialogue">
+    <form method="dialog" class="dialogue-fermer-forme">
+        <button class="dialogue-fermer" value="annuler" aria-label="Fermer">&times;</button>
+    </form>
+
+    <h2 id="titre-dialogue">Connexion</h2>
+
+    <div class="onglets" role="tablist">
+        <button type="button" class="onglet actif" id="onglet-connexion" role="tab" aria-selected="true">Se connecter</button>
+        <button type="button" class="onglet" id="onglet-inscription" role="tab" aria-selected="false">Créer un compte</button>
+    </div>
+
+    <div class="google" id="zone-google" hidden>
+        <div id="bouton-google"></div>
+        <p class="separateur"><span>ou</span></p>
+    </div>
+
+    <p class="google-indisponible" id="google-indisponible" hidden>
+        La connexion Google n'est pas encore configurée sur ce serveur.
+    </p>
+
+    <form class="formulaire" id="formulaire-auth" novalidate>
+        <div class="champ champ-inscription" hidden>
+            <label for="prenom">Prénom</label>
+            <input type="text" id="prenom" name="prenom" autocomplete="given-name">
+        </div>
+
+        <div class="champ champ-inscription" hidden>
+            <label for="nom">Nom</label>
+            <input type="text" id="nom" name="nom" autocomplete="family-name">
+        </div>
+
+        <div class="champ">
+            <label for="courriel">Adresse de courriel</label>
+            <input type="email" id="courriel" name="courriel" autocomplete="email" required>
+        </div>
+
+        <div class="champ">
+            <label for="mot_de_passe">Mot de passe</label>
+            <input type="password" id="mot_de_passe" name="mot_de_passe" autocomplete="current-password" required>
+            <p class="aide champ-inscription" hidden>12 caractères minimum.</p>
+        </div>
+
+        <p class="erreur" id="erreur-auth" role="alert" hidden></p>
+
+        <button type="submit" class="bouton bouton-principal" id="bouton-valider">Se connecter</button>
+    </form>
+</dialog>
+
+<script src="/commun.js"></script>
+<script src="/marche.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 // Création / mise à jour du schéma : node application/crypto/api/migrer.js
 const fs = require('fs');
 const path = require('path');
-const db = require('./db');
+const db = require('../../_commun/api/db');
 
 async function migrer() {
     const sql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');

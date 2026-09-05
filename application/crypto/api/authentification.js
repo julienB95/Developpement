@@ -1,6 +1,6 @@
 // Sessions : creation, lecture et revocation
 const crypto = require('crypto');
-const db = require('./db');
+const db = require('../../_commun/api/db');
 
 const DUREE_JOURS = Number(process.env.SESSION_DUREE_JOURS || 30);
 const MILLISECONDES_PAR_JOUR = 24 * 60 * 60 * 1000;
@@ -28,7 +28,7 @@ async function utilisateurDepuisJeton(jeton) {
     if (!jeton) return null;
 
     const { rows } = await db.requete(
-        `SELECT u.id, u.courriel, u.nom, u.prenom, u.est_actif, u.cree_le, s.expire_le
+        `SELECT u.id, u.courriel, u.nom, u.prenom, u.est_actif, u.est_admin, u.cree_le, s.expire_le
          FROM session s
          JOIN utilisateur u ON u.id = s.utilisateur_id
          WHERE s.jeton_hash = $1 AND s.expire_le > now()`,

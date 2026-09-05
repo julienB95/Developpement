@@ -99,3 +99,8 @@ CREATE INDEX IF NOT EXISTS idx_session_utilisateur
 
 CREATE INDEX IF NOT EXISTS idx_session_expiration
     ON session (expire_le);
+
+-- Droit d'administration. Ajout separe pour rester applicable
+-- sur une base ou la table utilisateur existe deja.
+ALTER TABLE utilisateur
+    ADD COLUMN IF NOT EXISTS est_admin BOOLEAN NOT NULL DEFAULT FALSE;

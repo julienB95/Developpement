@@ -5,13 +5,14 @@ const crypto = require('crypto');
 const SEL_OCTETS = 16;
 const CLE_OCTETS = 64;
 const COUT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
-const LONGUEUR_MINIMALE = 12;
 
 // Format stocke : scrypt$N$r$p$sel_base64$cle_base64
+// La longueur minimale n'est pas verifiee ici : c'est une regle de politique,
+// appliquee par la route qui recoit le mot de passe.
 function hacher(motDePasse) {
     return new Promise((resoudre, rejeter) => {
-        if (typeof motDePasse !== 'string' || motDePasse.length < LONGUEUR_MINIMALE) {
-            return rejeter(new Error(`Le mot de passe doit faire au moins ${LONGUEUR_MINIMALE} caracteres`));
+        if (typeof motDePasse !== 'string' || motDePasse === '') {
+            return rejeter(new Error('Mot de passe absent'));
         }
 
         const sel = crypto.randomBytes(SEL_OCTETS);
@@ -59,4 +60,4 @@ function verifier(motDePasse, empreinte) {
     });
 }
 
-module.exports = { hacher, verifier, LONGUEUR_MINIMALE };
+module.exports = { hacher, verifier };
