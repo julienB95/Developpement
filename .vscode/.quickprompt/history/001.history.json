@@ -1,0 +1,36 @@
+{
+  "promptId": "001",
+  "versions": [
+    {
+      "versionId": "v1788615772590-hts70pog2",
+      "content": "Objectif : Améliorer la page d'accueil du site web  crypto\r\n1. Le menu en haut à droite  \"Se connecter\" ou Connecté si je suis connecté est bien placé : je l'appelerai le menu utilisateur\r\n2. En mode connecté : enléve le bouton Actus à gauche du menu utilisateur\r\n3. A la gauche du menu utilisateur, je veux un autre bloc qui affichera plusieurs informations en mode connecté et non connecté \r\n    1. Le jour au format Samedi 5 sept. 2026\r\n    2. A droite du jour l'heure en france au format 15:36\r\n    3. A droite de l'heure, un petit drapeau américain pour afficher l'heure américaine (l'heure importante dans le monde des crypos, c'est celle de la côte est, c'est bien cela ?)\r\n4. Contenu de la page d'accueil en mode non connecté \r\n    1. enleve le titre du texte 'Vos opérations crypto ...' et le contenu dessous\r\n    2. enleve aussi le bouton Créer mon compte et les cadre dessous 'Enregistrer', 'Suivre' etc ...\r\n    3. informations marchés\r\n        1. remonte le bloc\r\n        2. ajoute des fleches droite et gauche pour défiler sur les prochaines cryptos\r\n        3. ajoute un icone pour définir 'Marchés'\r\n    4. informations marchés\r\n        1. remonte le bloc\r\n        2. ajoute un icone pour définir 'Actualités'\r\n        2. ajoute des fleches droite et gauche pour défiler sur les prochaines actualités",
+      "timestamp": 1788615772590,
+      "changeType": "edit"
+    },
+    {
+      "versionId": "v1788615759105-7xhj8ujsx",
+      "content": "Objectif : Améliorer la page d'accueil du site web  crypto\r\n1. Le menu en haut à droite  \"Se connecter\" ou Connecté si je suis connecté est bien placé : je l'appelerai le menu utilisateur\r\n2. En mode connecté : enléve le bouton Actus à gauche du menu utilisateur\r\n3. A la gauche du menu utilisateur, je veux un autre bloc qui affichera plusieurs informations en mode connecté et non connecté \r\n    1. Le jour au format Samedi 5 sept. 2026\r\n    2. A droite du jour l'heure en france au format 15:36\r\n    3. A droite de l'heure, un petit drapeau américain pour afficher l'heure américaine (l'heure importante dans le monde des crypos, c'est celle de la côte est, c'est bien cela ?)\r\n4. Contenu de la page d'accueil en mode non connecté \r\n    1. enleve le titre du texte 'Vos opérations crypto ...' et le contenu dessous\r\n    2. enleve aussi le bouton Créer mon compte et les cadre dessous 'Enregistrer', 'Suivre' etc ...\r\n    3. informations marchés\r\n        1. remonte le bloc\r\n        2. ajoute des fleches droite et gauche pour défiler sur les prochaines cryptos\r\n        3. ajoute un icone pour définir 'Marchés'\r\n    4. informations marchés\r\n        1. remonte le bloc\r\n        3. ajoute un icone pour définir 'Actualités'\r\n        2. ajoute des fleches droite et gauche pour défiler sur les prochaines actualités",
+      "timestamp": 1788615759105,
+      "changeType": "edit"
+    },
+    {
+      "versionId": "v1788615537344-vqv01zqfl",
+      "content": "Objectif : Améliorer la page d'accueil du site web  crypto\r\n1. Le menu en haut à droite  \"Se connecter\" ou Connecté si je suis connecté est bien placé : je l'appelerai le menu utilisateur\r\n2. En mode connecté : enléve le bouton Actus à gauche du menu utilisateur\r\n3. A la gauche du menu utilisateur, je veux un autre bloc qui affichera plusieurs informations en mode connecté et non connecté \r\n    1. Le jour au format Samedi 5 sept. 2026\r\n    2. A droite du jour l'heure en france au format 15:36\r\n    3. A droite de l'heure, un petit drapeau américain pour afficher l'heure américaine (l'heure importante dans le monde des crypos, c'est celle de la côte est, c'est bien cela ?)\r\n4. ",
+      "timestamp": 1788615537344,
+      "changeType": "edit"
+    },
+    {
+      "versionId": "v1788615526571-68oy58wzi",
+      "content": "Objectif : Améliorer la page d'accueil du site web  crypto\r\n1. Le menu en haut à droite  \"Se connecter\" ou Connecté si je suis connecté est bien placé : je l'appelerai le menu utilisateur\r\n2. En mode connecté : enléve le bouton Actus à gauche du menu utilisateur\r\n2. A la gauche du menu utilisateur, je veux un autre bloc qui affichera plusieurs informations en mode connecté et non connecté \r\n    1. Le jour au format Samedi 5 sept. 2026\r\n    2. A droite du jour l'heure en france au format 15:36\r\n    3. A droite de l'heure, un petit drapeau américain pour afficher l'heure américaine (l'heure importante dans le monde des crypos, c'est celle de la côte est, c'est bien cela ?)\r\n",
+      "timestamp": 1788615526571,
+      "changeType": "edit"
+    },
+    {
+      "versionId": "v1788615196778-2evgnbilw",
+      "content": "Objectif : Améliorer la page d'accueil du site web  crypto\r\n1. ",
+      "timestamp": 1788615196778,
+      "changeType": "edit"
+    }
+  ],
+  "currentVersionId": "v1788615772590-hts70pog2"
+}
