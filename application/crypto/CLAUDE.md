@@ -41,3 +41,12 @@ pour tout ce qui se trouve dans `application/crypto/`.
 - Les montants et quantités sont en `NUMERIC(38, 18)`, jamais en `REAL` ni `DOUBLE PRECISION`
 - Les horodatages sont en `TIMESTAMPTZ`
 - Les positions sont calculées depuis la vue `position` : aucun solde dénormalisé en table
+
+## Comptes utilisateurs
+
+- Aucun mot de passe en clair, ni en base, ni dans les journaux, ni dans une réponse d'API
+- Le hachage passe exclusivement par `api/motdepasse.js` (scrypt, module natif de Node)
+- Les colonnes `mot_de_passe_hash` et `google_sub` ne sont jamais renvoyées par une route
+- Les courriels sont normalisés en minuscules avant toute écriture ou recherche
+- Un compte désactivé (`est_actif = false`) est refusé à la connexion, jamais supprimé
+- La connexion Google s'appuie sur le claim `sub` du jeton, jamais sur l'adresse de courriel

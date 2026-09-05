@@ -59,3 +59,43 @@ SELECT
 FROM operation o
 JOIN actif a ON a.id = o.actif_id
 GROUP BY o.portefeuille_id, o.actif_id, a.symbole, o.devise;
+
+-- Comptes utilisateurs
+-- Deux modes d'authentification possibles, cumulables sur un meme compte :
+--   - mot de passe local : mot_de_passe_hash renseigne (empreinte scrypt, jamais le mot de passe)
+--   - compte Google      : google_sub renseigne (claim "sub" du jeton Google, stable et unique)
+CREATE TABLE IF NOT EXISTS utilisateur (
+    id                 SERIAL PRIMARY KEY,
+    courriel           TEXT NOT NULL UNIQUE,
+    nom                TEXT NOT NULL,
+    prenom             TEXT NOT NULL,
+    mot_de_passe_hash  TEXT,
+    google_sub         TEXT UNIQUE,
+    est_actif          BOOLEAN NOT NULL DEFAULT TRUE,
+    cree_le            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Le courriel est toujours stocke en minuscules pour que l'unicite soit reelle
+    CONSTRAINT utilisateur_courriel_minuscules CHECK (courriel = lower(courriel)),
+    CONSTRAINT utilisateur_courriel_forme CHECK (courriel LIKE '%_@_%._%'),
+    -- Un compte doit disposer d'au moins un moyen de connexion
+    CONSTRAINT utilisateur_authentification CHECK (
+        mot_de_passe_hash IS NOT NULL OR google_sub IS NOT NULL
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_utilisateur_actif
+    ON utilisateur (est_actif);
+
+-- Sessions ouvertes. Seule l'empreinte du jeton est stockee :
+-- une fuite de la base ne permet pas de rejouer une session.
+CREATE TABLE IF NOT EXISTS session (
+    jeton_hash      TEXT PRIMARY KEY,
+    utilisateur_id  INTEGER NOT NULL REFERENCES utilisateur(id) ON DELETE CASCADE,
+    cree_le         TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expire_le       TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_utilisateur
+    ON session (utilisateur_id);
+
+CREATE INDEX IF NOT EXISTS idx_session_expiration
+    ON session (expire_le);

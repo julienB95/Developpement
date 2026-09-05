@@ -1,6 +1,9 @@
 // API de l'application crypto - Node natif + PostgreSQL (NAS Synology)
 const http = require('http');
 const db = require('./db');
+const auth = require('./authentification');
+const google = require('./google');
+const motdepasse = require('./motdepasse');
 
 const PORT = Number(process.env.CRYPTO_API_PORT || 9998);
 const HOTE = process.env.CRYPTO_API_HOST || '127.0.0.1';
@@ -264,6 +267,145 @@ route('POST', '/api/crypto/operations', async ({ corps }) => {
     return { code: 201, corps: rows[0] };
 });
 
+// --- Comptes et connexion --------------------------------------------------
+const COURRIEL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function exigerCourriel(corps) {
+    const courriel = exigerTexte(corps, 'courriel').toLowerCase();
+    if (!COURRIEL.test(courriel)) throw new ErreurClient('Adresse de courriel invalide');
+    return courriel;
+}
+
+// Vue publique d'un compte : ni empreinte de mot de passe, ni identifiant Google
+function comptePublic(ligne) {
+    return {
+        id: ligne.id,
+        courriel: ligne.courriel,
+        nom: ligne.nom,
+        prenom: ligne.prenom,
+        est_actif: ligne.est_actif,
+        cree_le: ligne.cree_le,
+    };
+}
+
+async function exigerConnexion(req) {
+    const utilisateur = await auth.utilisateurDepuisJeton(auth.jetonDepuisRequete(req));
+    if (!utilisateur) throw new ErreurClient('Authentification requise', 401);
+    return utilisateur;
+}
+
+route('POST', '/api/crypto/inscription', async ({ corps }) => {
+    const courriel = exigerCourriel(corps);
+    const nom = exigerTexte(corps, 'nom');
+    const prenom = exigerTexte(corps, 'prenom');
+    const enClair = exigerTexte(corps, 'mot_de_passe');
+
+    let empreinte;
+    try {
+        empreinte = await motdepasse.hacher(enClair);
+    } catch (err) {
+        throw new ErreurClient(err.message);
+    }
+
+    const { rows } = await db.requete(
+        `INSERT INTO utilisateur (courriel, nom, prenom, mot_de_passe_hash)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, courriel, nom, prenom, est_actif, cree_le`,
+        [courriel, nom, prenom, empreinte]
+    );
+
+    const session = await auth.creerSession(rows[0].id);
+    return { code: 201, corps: { utilisateur: comptePublic(rows[0]), ...session } };
+});
+
+route('POST', '/api/crypto/connexion', async ({ corps }) => {
+    const courriel = exigerCourriel(corps);
+    const enClair = exigerTexte(corps, 'mot_de_passe');
+
+    const { rows } = await db.requete(
+        `SELECT id, courriel, nom, prenom, est_actif, cree_le, mot_de_passe_hash
+         FROM utilisateur WHERE courriel = $1`,
+        [courriel]
+    );
+
+    const ligne = rows[0];
+    const valide = ligne && ligne.mot_de_passe_hash
+        ? await motdepasse.verifier(enClair, ligne.mot_de_passe_hash)
+        : false;
+
+    // Message identique dans tous les cas : ne revele pas si le compte existe
+    if (!valide) throw new ErreurClient('Courriel ou mot de passe incorrect', 401);
+    if (!ligne.est_actif) throw new ErreurClient('Ce compte est desactive', 403);
+
+    const session = await auth.creerSession(ligne.id);
+    return { code: 200, corps: { utilisateur: comptePublic(ligne), ...session } };
+});
+
+route('POST', '/api/crypto/connexion/google', async ({ corps }) => {
+    const jetonGoogle = exigerTexte(corps, 'jeton');
+
+    let profil;
+    try {
+        profil = await google.verifierJeton(jetonGoogle);
+    } catch (err) {
+        throw new ErreurClient(err.message, 401);
+    }
+    if (!profil.courriel) {
+        throw new ErreurClient("Le compte Google ne fournit pas d'adresse de courriel", 400);
+    }
+
+    // Compte deja associe a ce compte Google
+    let { rows } = await db.requete(
+        `SELECT id, courriel, nom, prenom, est_actif, cree_le
+         FROM utilisateur WHERE google_sub = $1`,
+        [profil.sub]
+    );
+
+    // Sinon, rattachement au compte existant portant la meme adresse
+    if (!rows.length) {
+        ({ rows } = await db.requete(
+            `UPDATE utilisateur SET google_sub = $2
+             WHERE courriel = $1 AND google_sub IS NULL
+             RETURNING id, courriel, nom, prenom, est_actif, cree_le`,
+            [profil.courriel, profil.sub]
+        ));
+    }
+
+    // Sinon, creation du compte
+    if (!rows.length) {
+        ({ rows } = await db.requete(
+            `INSERT INTO utilisateur (courriel, nom, prenom, google_sub)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id, courriel, nom, prenom, est_actif, cree_le`,
+            [profil.courriel, profil.nom || 'Inconnu', profil.prenom || 'Inconnu', profil.sub]
+        ));
+    }
+
+    if (!rows[0].est_actif) throw new ErreurClient('Ce compte est desactive', 403);
+
+    const session = await auth.creerSession(rows[0].id);
+    return { code: 200, corps: { utilisateur: comptePublic(rows[0]), ...session } };
+});
+
+route('GET', '/api/crypto/moi', async ({ req }) => {
+    const utilisateur = await exigerConnexion(req);
+    return { code: 200, corps: comptePublic(utilisateur) };
+});
+
+route('POST', '/api/crypto/deconnexion', async ({ req }) => {
+    await auth.supprimerSession(auth.jetonDepuisRequete(req));
+    return { code: 200, corps: { statut: 'deconnecte' } };
+});
+
+// Desactivation de son propre compte : les donnees sont conservees,
+// toutes les sessions ouvertes sont fermees.
+route('POST', '/api/crypto/moi/desactivation', async ({ req }) => {
+    const utilisateur = await exigerConnexion(req);
+    await db.requete('UPDATE utilisateur SET est_actif = FALSE WHERE id = $1', [utilisateur.id]);
+    await auth.supprimerSessionsUtilisateur(utilisateur.id);
+    return { code: 200, corps: { statut: 'compte desactive' } };
+});
+
 // --- Serveur ---------------------------------------------------------------
 const serveur = http.createServer(async (req, res) => {
     let url;
@@ -308,6 +450,17 @@ const serveur = http.createServer(async (req, res) => {
 serveur.listen(PORT, HOTE, () => {
     console.log(`API crypto active sur http://${HOTE}:${PORT}`);
 });
+
+// Purge des sessions expirees, au demarrage puis toutes les six heures
+const INTERVALLE_PURGE = 6 * 60 * 60 * 1000;
+function purger() {
+    auth.purgerSessionsExpirees()
+        .then((nombre) => { if (nombre) console.log('Sessions expirees supprimees :', nombre); })
+        .catch((err) => console.error('Echec de la purge des sessions :', err.message));
+}
+purger();
+const minuterie = setInterval(purger, INTERVALLE_PURGE);
+minuterie.unref();
 
 function arreter() {
     serveur.close(() => db.fermer());
