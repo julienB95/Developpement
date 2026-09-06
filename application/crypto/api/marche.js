@@ -38,6 +38,7 @@ async function referentiel() {
 // Le referentiel est vide ou modifie : le cache devient faux et doit partir.
 function viderCache() {
     cache.clear();
+    cacheHistorique.clear();
 }
 
 // Les prix sont transmis en chaine : aucun arrondi ni perte de precision en route
@@ -136,6 +137,98 @@ async function cours(deviseDemandee, forcer) {
     return { ...donnees, provenance: 'source' };
 }
 
+// Evolution d'un cours sur les dernieres 24 heures, pour le graphique ouvert
+// au clic sur une carte. La source echantillonne la journee toutes les cinq
+// minutes : un cache de meme duree ne fait perdre aucun point du trace.
+const URL_COINS = 'https://api.coingecko.com/api/v3/coins';
+const DUREE_CACHE_HISTORIQUE = 5 * 60 * 1000;
+const JOUR_MS = 24 * 60 * 60 * 1000;
+
+const cacheHistorique = new Map();
+
+function erreurMarche(message, code) {
+    const err = new Error(message);
+    err.code = code;
+    return err;
+}
+
+async function historique(identifiantDemande, deviseDemandee) {
+    const devise = DEVISES_ACCEPTEES.includes(String(deviseDemandee || '').toLowerCase())
+        ? String(deviseDemandee).toLowerCase()
+        : 'eur';
+    const actif = String(identifiantDemande || '').trim().toLowerCase();
+
+    // L'identifiant vient du client : il ne devient une adresse sortante que
+    // s'il figure au referentiel. Sans cette liste, n'importe quelle chaine
+    // deviendrait un appel vers la source.
+    const suivies = await referentiel();
+    const autorises = suivies
+        ? suivies.map((ligne) => ligne.identifiant_coingecko)
+        : ACTIFS_PAR_DEFAUT;
+    if (!autorises.includes(actif)) throw erreurMarche('Crypto inconnue', 404);
+
+    const cle = `${actif}:${devise}`;
+    const enCache = cacheHistorique.get(cle);
+    if (enCache && Date.now() - enCache.horodatage < DUREE_CACHE_HISTORIQUE) {
+        return { ...enCache.donnees, provenance: 'cache' };
+    }
+
+    const url = new URL(`${URL_COINS}/${encodeURIComponent(actif)}/market_chart`);
+    url.searchParams.set('vs_currency', devise);
+    url.searchParams.set('days', '1');
+
+    let reponse;
+    try {
+        reponse = await fetch(url, {
+            headers: { Accept: 'application/json' },
+            signal: AbortSignal.timeout(DELAI_REPONSE),
+        });
+    } catch (err) {
+        // Source injoignable : le dernier trace connu vaut mieux qu'une erreur
+        if (enCache) return { ...enCache.donnees, provenance: 'cache_perime' };
+        throw erreurMarche('Source des cours injoignable', 503);
+    }
+
+    if (!reponse.ok) {
+        if (enCache) return { ...enCache.donnees, provenance: 'cache_perime' };
+        throw erreurMarche(`Source des cours indisponible (HTTP ${reponse.status})`, 503);
+    }
+
+    const brut = await reponse.json();
+    if (!brut || !Array.isArray(brut.prices)) {
+        if (enCache) return { ...enCache.donnees, provenance: 'cache_perime' };
+        throw erreurMarche('Reponse inattendue de la source des cours', 502);
+    }
+
+    // La source deborde parfois de la fenetre demandee : on s'en tient aux
+    // dernieres 24 heures. Les prix restent en chaine, sans arrondi.
+    const depuis = Date.now() - JOUR_MS;
+    const points = brut.prices
+        .filter((ligne) => Array.isArray(ligne)
+            && Number.isFinite(ligne[0]) && ligne[0] >= depuis
+            && ligne[1] !== null && ligne[1] !== undefined)
+        .map((ligne) => ({
+            horodatage: new Date(ligne[0]).toISOString(),
+            prix: String(ligne[1]),
+        }));
+
+    if (!points.length) {
+        if (enCache) return { ...enCache.donnees, provenance: 'cache_perime' };
+        throw erreurMarche('Aucun cours releve sur les dernieres 24 heures', 503);
+    }
+
+    const donnees = {
+        actif,
+        devise: devise.toUpperCase(),
+        releve_le: new Date().toISOString(),
+        source: 'CoinGecko',
+        points,
+    };
+
+    cacheHistorique.set(cle, { horodatage: Date.now(), donnees });
+    return { ...donnees, provenance: 'source' };
+}
+
 // Les 100 plus grosses capitalisations, pour alimenter la saisie d'une nouvelle
 // crypto dans l'administration. Le classement bouge lentement : une heure de
 // cache suffit largement, et menage le quota de la source.
@@ -196,4 +289,4 @@ async function logoActif(identifiant) {
     return actif ? actif.image : null;
 }
 
-module.exports = { cours, catalogue, logoActif, viderCache, DEVISES_ACCEPTEES };
+module.exports = { cours, historique, catalogue, logoActif, viderCache, DEVISES_ACCEPTEES };

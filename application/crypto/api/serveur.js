@@ -117,7 +117,7 @@ route('GET', '/api/crypto/configuration', async () => ({
 }));
 
 // --- Marche et actualites (acces public) -----------------------------------
-// Ces deux routes sont ouvertes : les informations sont affichees avant connexion,
+// Ces routes sont ouvertes : les informations sont affichees avant connexion,
 // sur le site comme dans l'application mobile.
 route('GET', '/api/crypto/marche/cours', async ({ url }) => {
     try {
@@ -125,6 +125,17 @@ route('GET', '/api/crypto/marche/cours', async ({ url }) => {
         return { code: 200, corps: donnees };
     } catch (err) {
         throw new ErreurClient(err.message, 503);
+    }
+});
+
+// Evolution du cours sur les dernieres 24 heures, pour le graphique ouvert au
+// clic sur une carte. Publique comme les cours eux-memes.
+route('GET', '/api/crypto/marche/historique/:actif', async ({ params, url }) => {
+    try {
+        const donnees = await marche.historique(params.actif, url.searchParams.get('devise'));
+        return { code: 200, corps: donnees };
+    } catch (err) {
+        throw new ErreurClient(err.message, Number.isInteger(err.code) ? err.code : 503);
     }
 });
 
