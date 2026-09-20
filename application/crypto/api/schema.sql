@@ -383,12 +383,39 @@ INSERT INTO crypto (id, libelle, identifiant_coingecko) VALUES
     ('ADA',  'Cardano',   'cardano'),
     ('BNB',  'BNB',       'binancecoin'),
     ('DOGE', 'Dogecoin',  'dogecoin'),
-    ('LINK', 'Chainlink', 'chainlink')
+    ('LINK', 'Chainlink', 'chainlink'),
+    -- Le symbole reste celui d'usage sur les relevés (RNDR, FET), même quand
+    -- le jeton a été renommé depuis : c'est lui qui sert de clé aux imports.
+    ('AAVE',  'Aave',                                  'aave'),
+    ('AVAX',  'Avalanche',                             'avalanche-2'),
+    ('BCH',   'Bitcoin Cash',                          'bitcoin-cash'),
+    ('CTSI',  'Cartesi',                               'cartesi'),
+    ('DOT',   'Polkadot',                              'polkadot'),
+    ('ETC',   'Ethereum Classic',                      'ethereum-classic'),
+    ('FET',   'Artificial Superintelligence Alliance', 'fetch-ai'),
+    ('GRT',   'The Graph',                             'the-graph'),
+    ('HBAR',  'Hedera',                                'hedera-hashgraph'),
+    ('LTC',   'Litecoin',                              'litecoin'),
+    ('RNDR',  'Render',                                'render-token'),
+    ('TRUMP', 'Official Trump',                        'official-trump'),
+    ('XLM',   'Stellar',                               'stellar')
 ON CONFLICT (id) DO UPDATE
     SET libelle = EXCLUDED.libelle,
         identifiant_coingecko = EXCLUDED.identifiant_coingecko;
 
 UPDATE crypto SET paire_binance = id || 'EUR' WHERE paire_binance IS NULL;
+
+-- Le symbole suffixé d'EUR ne fait pas toujours une paire : Binance n'en cote
+-- qu'une trentaine en euro, et Render y est passé de RNDR à RENDER. Une paire
+-- inexistante ferait échouer le relevé de valeur à chaque tentative, là où une
+-- paire absente le fait sauter proprement. La condition sur la valeur engendrée
+-- laisse intacte toute paire saisie à la main depuis l'administration.
+UPDATE crypto SET paire_binance = 'RENDEREUR'
+ WHERE id = 'RNDR' AND paire_binance = 'RNDREUR';
+
+UPDATE crypto SET paire_binance = NULL
+ WHERE id IN ('AAVE', 'CTSI', 'ETC', 'FET', 'GRT', 'HBAR', 'TRUMP')
+   AND paire_binance = id || 'EUR';
 
 INSERT INTO plateforme (libelle) VALUES
     ('Binance'),
@@ -396,5 +423,7 @@ INSERT INTO plateforme (libelle) VALUES
     ('Coinbase'),
     ('Bitstamp'),
     ('Bitpanda'),
+    ('Bitstack'),
+    ('Trade Republic'),
     ('Autre')
 ON CONFLICT (libelle) DO NOTHING;

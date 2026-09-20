@@ -1,5 +1,10 @@
-// Page d'importation d'un fichier : sélection en haut, bouton Traitement, et
+// Page d'importation d'un fichier : sélection en haut, deux boutons, et
 // rapport ligne par ligne en regard du tableur.
+//
+// La vérification et le traitement empruntent la même route, au drapeau
+// « simuler » près : le rapport rendu avant import est donc exactement celui
+// que l'import produira, et non le résultat d'un second contrôle écrit à côté
+// qui finirait par diverger.
 //
 // Le fichier n'est jamais analysé ici : le navigateur en envoie les octets, et
 // l'API seule sait s'il s'agit d'un classeur ou d'un CSV, et ce que ses lignes
@@ -12,9 +17,14 @@
     var C = window.Crypto;
 
     var champFichier = document.getElementById('fichier-import');
+    var boutonVerification = document.getElementById('bouton-verification');
     var boutonTraitement = document.getElementById('bouton-traitement');
     var sectionRapport = document.getElementById('section-rapport');
+    var titreRapport = document.getElementById('titre-rapport');
     var zoneRapport = document.getElementById('rapport');
+
+    // Au-delà, la liste des problèmes cesse d'être un résumé
+    var PROBLEMES_AFFICHES = 12;
 
     var STATUTS = {
         importee: { libelle: 'Importée', classe: 'etiquette-importee' },
@@ -138,6 +148,61 @@
         return rangee;
     }
 
+    // Sur un fichier long, la lecture ligne à ligne ne dit pas ce qui cloche :
+    // les mêmes motifs y reviennent par dizaines. Regroupés et comptés, ils
+    // rendent le fichier corrigeable d'un coup plutôt que ligne par ligne.
+    function syntheseProblemes(lignes) {
+        var comptes = Object.create(null);
+        lignes.forEach(function (ligne) {
+            ligne.motifs.forEach(function (motif) {
+                comptes[motif] = (comptes[motif] || 0) + 1;
+            });
+        });
+
+        var motifs = Object.keys(comptes).sort(function (a, b) {
+            return comptes[b] - comptes[a] || a.localeCompare(b, 'fr');
+        });
+        if (!motifs.length) return null;
+
+        var bloc = document.createElement('div');
+        bloc.className = 'rapport-problemes';
+
+        var titre = document.createElement('p');
+        titre.className = 'rapport-problemes-titre';
+        titre.textContent = motifs.length > 1
+            ? motifs.length + ' problèmes relevés'
+            : 'Problème relevé';
+        bloc.appendChild(titre);
+
+        var liste = document.createElement('ul');
+        liste.className = 'liste-problemes';
+        motifs.slice(0, PROBLEMES_AFFICHES).forEach(function (motif) {
+            var element = document.createElement('li');
+
+            var compte = document.createElement('span');
+            compte.className = 'probleme-compte';
+            compte.textContent = comptes[motif];
+            element.appendChild(compte);
+
+            var texte = document.createElement('span');
+            texte.textContent = motif;
+            element.appendChild(texte);
+
+            liste.appendChild(element);
+        });
+        bloc.appendChild(liste);
+
+        if (motifs.length > PROBLEMES_AFFICHES) {
+            var reste = document.createElement('p');
+            reste.className = 'aide';
+            reste.textContent = 'Et ' + (motifs.length - PROBLEMES_AFFICHES)
+                + ' autre(s) motif(s), détaillés dans le tableau ci-dessous.';
+            bloc.appendChild(reste);
+        }
+
+        return bloc;
+    }
+
     function tableauLignes(lignes) {
         var enveloppe = document.createElement('div');
         enveloppe.className = 'tableau-defilant';
@@ -167,6 +232,8 @@
 
     function rendreRapport(rapport, nomFichier) {
         sectionRapport.hidden = false;
+        titreRapport.textContent = rapport.simulation
+            ? 'Rapport de vérification' : 'Rapport de traitement';
         C.vider(zoneRapport);
 
         var origine = document.createElement('p');
@@ -179,7 +246,11 @@
 
         var chiffres = document.createElement('div');
         chiffres.className = 'rapport-chiffres';
-        chiffres.appendChild(chiffre(rapport.importees, 'importées', 'rapport-ok'));
+        // Une vérification n'importe rien : ce qu'elle a à annoncer, c'est ce
+        // que le traitement enregistrerait.
+        chiffres.appendChild(rapport.simulation
+            ? chiffre(rapport.valides, 'à importer', 'rapport-ok')
+            : chiffre(rapport.importees, 'importées', 'rapport-ok'));
         chiffres.appendChild(chiffre(rapport.doublons, 'déjà présentes',
             rapport.doublons ? 'rapport-attente' : ''));
         chiffres.appendChild(chiffre(rapport.rejetees, 'rejetées',
@@ -193,14 +264,29 @@
             zoneRapport.appendChild(ignorees);
         }
 
+        var problemes = syntheseProblemes(rapport.lignes);
+        if (problemes) zoneRapport.appendChild(problemes);
+
         if (rapport.lignes.length) zoneRapport.appendChild(tableauLignes(rapport.lignes));
 
+        var suite = document.createElement('p');
+        suite.className = 'aide';
+
         if (rapport.rejetees) {
-            var suite = document.createElement('p');
-            suite.className = 'aide';
-            suite.textContent = 'Corrigez les lignes rejetées dans le fichier, '
-                + 'sélectionnez-le à nouveau et relancez le traitement : '
-                + 'les lignes déjà importées seront reconnues et ignorées.';
+            suite.textContent = rapport.simulation
+                ? 'Corrigez les lignes rejetées dans le fichier, sélectionnez-le à nouveau '
+                    + 'et relancez la vérification. Lancer le traitement en l’état '
+                    + 'importerait les ' + rapport.valides + ' ligne(s) valides et laisserait '
+                    + 'les autres de côté.'
+                : 'Corrigez les lignes rejetées dans le fichier, '
+                    + 'sélectionnez-le à nouveau et relancez le traitement : '
+                    + 'les lignes déjà importées seront reconnues et ignorées.';
+            zoneRapport.appendChild(suite);
+        } else if (rapport.simulation) {
+            suite.textContent = 'Aucune anomalie : le fichier peut être traité.'
+                + (rapport.doublons
+                    ? ' Les ' + rapport.doublons + ' ligne(s) déjà présentes seront ignorées.'
+                    : '');
             zoneRapport.appendChild(suite);
         }
 
@@ -213,34 +299,41 @@
         }
     }
 
-    // --- Traitement ---------------------------------------------------------
-    function traiter() {
+    // --- Vérification et traitement -----------------------------------------
+    function activerBoutons(actifs) {
+        boutonVerification.disabled = !actifs;
+        boutonTraitement.disabled = !actifs;
+    }
+
+    // simuler : le fichier est contrôlé et le rapport rendu sans rien écrire.
+    function envoyer(simuler) {
         var fichier = champFichier.files && champFichier.files[0];
         if (!fichier) return;
 
-        boutonTraitement.disabled = true;
-        messageRapport('Traitement en cours…');
+        activerBoutons(false);
+        messageRapport(simuler ? 'Vérification en cours…' : 'Traitement en cours…');
 
         lireFichier(fichier)
             .then(function (base64) {
                 return C.appeler('/importation', {
                     method: 'POST',
-                    corps: { fichier: base64, simuler: false },
+                    corps: { fichier: base64, simuler: simuler },
                 });
             })
             .then(function (rapport) { rendreRapport(rapport, fichier.name); })
             .catch(function (erreur) { messageRapport(erreur.message, 'erreur'); })
             .finally(function () {
-                boutonTraitement.disabled = !(champFichier.files && champFichier.files[0]);
+                activerBoutons(Boolean(champFichier.files && champFichier.files[0]));
             });
     }
 
     champFichier.addEventListener('change', function () {
-        boutonTraitement.disabled = !(champFichier.files && champFichier.files[0]);
+        activerBoutons(Boolean(champFichier.files && champFichier.files[0]));
         sectionRapport.hidden = true;
     });
 
-    boutonTraitement.addEventListener('click', traiter);
+    boutonVerification.addEventListener('click', function () { envoyer(true); });
+    boutonTraitement.addEventListener('click', function () { envoyer(false); });
 
     C.pageConnectee(function () {
         document.getElementById('zone-fichier').hidden = false;

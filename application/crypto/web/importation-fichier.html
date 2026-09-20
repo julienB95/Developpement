@@ -78,13 +78,19 @@
                     <input type="file" id="fichier-import" accept=".xlsx,.csv,.txt">
                 </div>
 
+                <button type="button" class="bouton bouton-discret" id="bouton-verification" disabled>
+                    Vérification de la cohérence
+                </button>
+
                 <button type="button" class="bouton bouton-principal" id="bouton-traitement" disabled>
                     Traitement
                 </button>
             </div>
 
             <p class="aide">
-                Le traitement enregistre les lignes valides et rend le rapport ci-dessous.
+                La vérification contrôle le fichier et liste tous les problèmes sans rien
+                enregistrer : à lancer avant le traitement pour savoir ce qui passera.
+                Le traitement, lui, enregistre les lignes valides et rend le même rapport.
                 Une ligne déjà enregistrée est reconnue et ignorée : corrigez le fichier
                 puis relancez-le en entier, aucun doublon ne sera créé.
                 Besoin du format attendu ? <a href="/importation-modele.html">Voir le modèle</a>.
@@ -98,7 +104,7 @@
                         <path d="M9 11l3 3 5-6"></path>
                         <path d="M5 4h14v16H5z"></path>
                     </svg>
-                    Rapport de traitement
+                    <span id="titre-rapport">Rapport de traitement</span>
                 </h2>
             </div>
 
