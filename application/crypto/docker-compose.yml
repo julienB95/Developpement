@@ -1,0 +1,42 @@
+# Site crypto : une seule API Node qui sert aussi l'interface web.
+# A deployer sur le NAS depuis
+#   /volume1/SITES/crypto/application/crypto/
+# La base PostgreSQL est celle de application/_commun/docker-compose.yml.
+services:
+  crypto:
+    build:
+      # Racine du depot : l'API importe application/_commun/api/
+      context: ../..
+      dockerfile: application/crypto/api/Dockerfile
+    image: crypto-api:local
+    container_name: crypto
+    restart: unless-stopped
+    # Le .env de la racine n'est jamais copie dans l'image :
+    # il est lu a l'execution, depuis le NAS uniquement.
+    env_file:
+      # Par defaut le .env de la racine du depot (poste de developpement).
+      # Sur le NAS, definir CRYPTO_ENV dans application/crypto/.env pour lire
+      # un fichier hors du dossier d equipe : /volume1/docker/crypto/crypto.env
+      - ${CRYPTO_ENV:-../../.env}
+    environment:
+      # Ecrase la valeur du .env, valable seulement pour un lancement local
+      CRYPTO_API_HOST: 0.0.0.0
+      CRYPTO_API_PORT: 9998
+      TZ: Europe/Paris
+    ports:
+      # Publie sur la boucle locale du NAS : seul le proxy inverse de DSM
+      # atteint l'API, jamais le reseau local ni internet en direct.
+      - "127.0.0.1:9998:9998"
+    healthcheck:
+      # /api/crypto/sante interroge la base : le conteneur est declare sain
+      # seulement si PostgreSQL repond aussi.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9998/api/crypto/sante"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"

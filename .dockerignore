@@ -1,0 +1,13 @@
+# La racine du depot sert de contexte de construction : on n'y envoie
+# ni les secrets, ni l'historique, ni les dependances locales.
+.env
+.env.*
+node_modules/
+*.db
+.git/
+.gitignore
+.claude/
+.vscode/
+ecosystem.config.js
+CLAUDE.md
+**/CLAUDE.md
