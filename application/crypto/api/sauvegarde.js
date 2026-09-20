@@ -408,7 +408,18 @@ async function creer(demandeur) {
 
     try {
         const debut = new Date();
-        await fs.promises.mkdir(racine(), { recursive: true });
+
+        // Le dossier peut être sur un partage réseau : hors ligne ou non
+        // authentifié, l'erreur système seule n'aiderait pas.
+        try {
+            await fs.promises.mkdir(racine(), { recursive: true });
+        } catch (err) {
+            const echec = new Error(
+                `Dossier de sauvegarde inaccessible : ${racine()} (${err.code || err.message})`
+            );
+            echec.code = 400;
+            throw echec;
+        }
 
         const { nom, chemin } = await dossierLibre(debut);
         await fs.promises.mkdir(chemin);

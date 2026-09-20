@@ -1489,7 +1489,9 @@ route('POST', '/api/crypto/administration/sauvegardes', async ({ req }) => {
     try {
         return { code: 201, corps: await sauvegarde.creer(administrateur.courriel) };
     } catch (err) {
-        if (err.code === 409) throw new ErreurClient(err.message, 409);
+        // Sauvegarde deja en cours, ou dossier de destination injoignable :
+        // dans les deux cas la cause se corrige, elle est renvoyee telle quelle.
+        if (err.code === 409 || err.code === 400) throw new ErreurClient(err.message, err.code);
         throw err;
     }
 });
