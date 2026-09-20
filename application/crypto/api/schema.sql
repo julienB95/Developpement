@@ -121,6 +121,23 @@ CREATE TABLE IF NOT EXISTS crypto_valeur (
 CREATE INDEX IF NOT EXISTS idx_crypto_valeur_date
     ON crypto_valeur (date DESC);
 
+-- Une bougie relevée avant la fin de sa journée ne porte qu'une moyenne
+-- partielle : son VWAP ne couvre que les heures déjà écoulées. Elle doit être
+-- reprise une fois la journée close, alors qu'une journée close est figée.
+ALTER TABLE crypto_valeur
+    ADD COLUMN IF NOT EXISTS est_partiel BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_crypto_valeur_partiel
+    ON crypto_valeur (date) WHERE est_partiel;
+
+-- Reprise de l'existant : les bougies étant calées sur 00:00 UTC, une ligne
+-- écrite avant la fin de sa journée UTC portait forcément une bougie ouverte.
+-- Rejouable : une ligne complétée après coup a un relevé postérieur à sa journée.
+UPDATE crypto_valeur
+   SET est_partiel = TRUE
+ WHERE NOT est_partiel
+   AND releve_le < ((date + 1)::timestamp AT TIME ZONE 'UTC');
+
 -- --------------------------------------------------------------------------
 -- Comptes utilisateurs
 -- --------------------------------------------------------------------------
@@ -196,6 +213,24 @@ ALTER TABLE utilisateur
     FOREIGN KEY (plateforme_defaut) REFERENCES plateforme(libelle)
     ON UPDATE CASCADE ON DELETE SET NULL;
 
+-- Traitement des récompenses de staking dans le « prix total d'acquisition »
+-- de l'article 150 VH bis. Le texte se lit dans les deux sens et rien n'a été
+-- tranché pour le staking :
+--   'nulle'        : rien n'a été acquitté en monnaie, le prix d'acquisition
+--                    est zéro. La plus-value en ressort plus élevée, donc
+--                    l'impôt aussi : c'est l'option prudente.
+--   'valeur_recue' : la valeur à la réception, celle déjà imposée en revenu
+--                    le cas échéant, ce qui évite une double imposition.
+-- Le choix appartient au contribuable : il est porté par le compte, jamais
+-- figé dans le code, et rappelé sous les plus-values affichées.
+ALTER TABLE utilisateur
+    ADD COLUMN IF NOT EXISTS staking_acquisition TEXT NOT NULL DEFAULT 'nulle';
+
+ALTER TABLE utilisateur DROP CONSTRAINT IF EXISTS utilisateur_staking_acquisition;
+ALTER TABLE utilisateur
+    ADD CONSTRAINT utilisateur_staking_acquisition
+    CHECK (staking_acquisition IN ('nulle', 'valeur_recue'));
+
 -- Compte créé par un administrateur dont le mot de passe reste à définir
 -- par la personne elle-même, via le lien qui lui est transmis.
 ALTER TABLE utilisateur
@@ -250,13 +285,13 @@ CREATE INDEX IF NOT EXISTS idx_session_expiration
 -- Opérations
 -- --------------------------------------------------------------------------
 
--- Achats et ventes simples, par utilisateur. Volontairement limité à ce cas :
--- ni transfert, ni staking, ni échange d'une crypto contre une autre.
+-- Achats, ventes et récompenses de staking, par utilisateur. Toujours pas de
+-- transfert ni d'échange d'une crypto contre une autre.
 CREATE TABLE IF NOT EXISTS operation (
     id              BIGSERIAL PRIMARY KEY,
     utilisateur_id  INTEGER NOT NULL REFERENCES utilisateur(id) ON DELETE CASCADE,
     horodatage      TIMESTAMPTZ NOT NULL,
-    sens            TEXT NOT NULL CHECK (sens IN ('achat', 'vente')),
+    type            TEXT NOT NULL,
     id_crypto       TEXT NOT NULL REFERENCES crypto(id),
     quantite        NUMERIC(38, 18) NOT NULL CHECK (quantite > 0),
     plateforme      TEXT,
@@ -266,6 +301,32 @@ CREATE TABLE IF NOT EXISTS operation (
     frais           NUMERIC(38, 18) NOT NULL DEFAULT 0 CHECK (frais >= 0),
     cree_le         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- « sens » ne disait que l'entrée ou la sortie ; « type » porte aussi le
+-- staking. Le renommage n'a lieu que sur une base créée avant ce changement.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'operation' AND column_name = 'sens'
+    ) THEN
+        ALTER TABLE operation RENAME COLUMN sens TO type;
+    END IF;
+END $$;
+
+-- La contrainte issue du CREATE TABLE porte un nom engendré, qui diffère selon
+-- l'âge de la base : les deux formes sont retirées avant d'en poser une nommée.
+ALTER TABLE operation DROP CONSTRAINT IF EXISTS operation_sens_check;
+ALTER TABLE operation DROP CONSTRAINT IF EXISTS operation_type_check;
+ALTER TABLE operation DROP CONSTRAINT IF EXISTS operation_type;
+ALTER TABLE operation
+    ADD CONSTRAINT operation_type CHECK (type IN ('achat', 'vente', 'staking'));
+
+-- Une récompense de staking ne s'achète pas : elle ne peut pas porter de frais.
+-- La règle est tenue par la base, pas seulement par l'interface.
+ALTER TABLE operation DROP CONSTRAINT IF EXISTS operation_staking_sans_frais;
+ALTER TABLE operation
+    ADD CONSTRAINT operation_staking_sans_frais CHECK (type <> 'staking' OR frais = 0);
 
 -- La colonne porte désormais le libellé de la plateforme, plus un identifiant.
 -- Le renommage n'a lieu que sur une base créée avant ce changement.
@@ -300,8 +361,10 @@ SELECT
     o.utilisateur_id,
     o.id_crypto,
     c.libelle,
-    SUM(CASE WHEN o.sens = 'achat' THEN o.quantite ELSE -o.quantite END) AS quantite,
-    SUM(CASE WHEN o.sens = 'achat'
+    -- Le staking fait entrer de la crypto, comme un achat...
+    SUM(CASE WHEN o.type = 'vente' THEN -o.quantite ELSE o.quantite END) AS quantite,
+    -- ...mais il n'a rien coûté : il ne pèse pas dans le prix d'acquisition.
+    SUM(CASE WHEN o.type = 'achat'
              THEN o.quantite * COALESCE(o.prix_unitaire, 0) + o.frais
              ELSE 0 END) AS cout_total
 FROM operation o

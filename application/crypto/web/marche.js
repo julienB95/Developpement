@@ -1,5 +1,5 @@
-// Cours et actualites : blocs defilants de la page quand personne n'est connecte,
-// bandeau de cours dans l'en-tete a cote du bloc utilisateur quand on l'est.
+// Cours et actualites : bandeau de cours toujours present dans l'en-tete,
+// et blocs defilants de la page quand personne n'est connecte.
 (function () {
     'use strict';
 
@@ -93,14 +93,45 @@
     }
 
     // --- Rendu ------------------------------------------------------------
+    // Petit bouton rond qui redemande une donnee sans attendre le releve
+    // automatique : son icone tourne pendant l'appel et il se verrouille, pour
+    // que des clics en rafale ne partent pas tous vers la source.
+    function boutonRafraichir(classe, intitule, action) {
+        var bouton = document.createElement('button');
+        bouton.type = 'button';
+        bouton.className = classe;
+        bouton.title = intitule;
+        bouton.setAttribute('aria-label', intitule);
+
+        var icone = baliseSvg('svg', { viewBox: '0 0 24 24', 'aria-hidden': 'true' });
+        icone.appendChild(baliseSvg('path', { d: 'M20 11a8 8 0 1 0-2.4 5.7' }));
+        icone.appendChild(baliseSvg('path', { d: 'M20 5v6h-6' }));
+        bouton.appendChild(icone);
+
+        bouton.addEventListener('click', function () {
+            bouton.disabled = true;
+            bouton.classList.add('fleche-tourne');
+            action().finally(function () {
+                bouton.disabled = false;
+                bouton.classList.remove('fleche-tourne');
+            });
+        });
+
+        return bouton;
+    }
+
     function carteCours(actif, devise) {
-        // La carte entiere est un bouton : elle ouvre le graphique du cours.
-        // Un <button> plutot qu'un <article> cliquable, pour le clavier et le focus.
-        var carte = document.createElement('button');
-        carte.type = 'button';
+        // La vignette porte deux actions : ouvrir le graphique et rafraichir le
+        // cours. C'est donc un <div> qui contient deux boutons, un bouton ne
+        // pouvant pas en contenir un autre.
+        var carte = document.createElement('div');
         carte.className = 'carte-cours';
-        carte.title = "Voir l'évolution du cours de " + actif.nom + ' sur 24 heures';
-        carte.addEventListener('click', function () { ouvrirGraphique(actif, devise); });
+
+        var ouvrir = document.createElement('button');
+        ouvrir.type = 'button';
+        ouvrir.className = 'carte-cours-ouvrir';
+        ouvrir.title = "Voir l'évolution du cours de " + actif.nom + ' sur 24 heures';
+        ouvrir.addEventListener('click', function () { ouvrirGraphique(actif, devise); });
 
         var haut = document.createElement('span');
         haut.className = 'carte-cours-haut';
@@ -131,9 +162,16 @@
         prix.className = 'carte-prix';
         prix.textContent = formaterPrix(actif.prix, devise);
 
-        carte.appendChild(haut);
-        carte.appendChild(nom);
-        carte.appendChild(prix);
+        ouvrir.appendChild(haut);
+        ouvrir.appendChild(nom);
+        ouvrir.appendChild(prix);
+
+        carte.appendChild(ouvrir);
+        carte.appendChild(boutonRafraichir(
+            'fleche fleche-mini carte-rafraichir',
+            'Rafraîchir le cours de ' + actif.nom,
+            rafraichirCours
+        ));
         return carte;
     }
 
@@ -246,6 +284,11 @@
         else boite.setAttribute('open', '');
     }
 
+    // Boite « Cours » ouverte depuis le bandeau. Tant qu'elle est a l'ecran, son
+    // contenu est refait avec le reste : sans cela, rafraichir depuis une de ses
+    // vignettes laisserait la boite sur l'ancien releve.
+    var refaireBoiteCours = null;
+
     function ouvrirTousLesCours() {
         if (!donnees.cours) return;
 
@@ -253,16 +296,28 @@
 
         var horodatage = document.createElement('p');
         horodatage.className = 'aide';
-        horodatage.textContent = 'Source ' + donnees.cours.source
-            + ' · relevé ' + ilYA(donnees.cours.releve_le);
         boite.appendChild(horodatage);
 
         var grille = document.createElement('div');
         grille.className = 'grille-cours-popup';
-        donnees.cours.actifs.forEach(function (actif) {
-            grille.appendChild(carteCours(actif, donnees.cours.devise));
-        });
         boite.appendChild(grille);
+
+        function remplir() {
+            if (!donnees.cours) return;
+            horodatage.textContent = 'Source ' + donnees.cours.source
+                + ' · relevé ' + ilYA(donnees.cours.releve_le);
+
+            C.vider(grille);
+            donnees.cours.actifs.forEach(function (actif) {
+                grille.appendChild(carteCours(actif, donnees.cours.devise));
+            });
+        }
+
+        remplir();
+        refaireBoiteCours = remplir;
+        boite.addEventListener('close', function () {
+            if (refaireBoiteCours === remplir) refaireBoiteCours = null;
+        });
 
         ouvrirDialogue(boite);
     }
@@ -470,8 +525,18 @@
         };
     }
 
+    // La vignette d'ou vient le graphique a pu etre construite sur un releve
+    // deja remplace : l'actif est relu dans le dernier releve connu.
+    function actifCourant(identifiant) {
+        if (!donnees.cours) return null;
+        for (var rang = 0; rang < donnees.cours.actifs.length; rang++) {
+            if (donnees.cours.actifs[rang].id === identifiant) return donnees.cours.actifs[rang];
+        }
+        return null;
+    }
+
     // Boite ouverte au clic sur une carte de cours : le trace des 24 dernieres
-    // heures, demande a l'API au moment de l'ouverture.
+    // heures, demande a l'API a l'ouverture puis a chaque rafraichissement.
     function ouvrirGraphique(actif, devise) {
         var boite = creerDialogue(actif.nom, 'dialogue-large dialogue-graphique');
 
@@ -498,11 +563,15 @@
         entete.appendChild(identite);
         entete.appendChild(prix);
         entete.appendChild(variation);
+        entete.appendChild(boutonRafraichir(
+            'fleche graphique-rafraichir',
+            'Rafraîchir le cours de ' + actif.nom,
+            rafraichir
+        ));
         boite.appendChild(entete);
 
         var etat = document.createElement('p');
         etat.className = 'aide';
-        etat.textContent = 'Chargement du graphique…';
         boite.appendChild(etat);
 
         var zone = document.createElement('div');
@@ -521,59 +590,87 @@
         pied.appendChild(lecture);
         pied.appendChild(bornes);
 
-        ouvrirDialogue(boite);
+        // Le prix et la variation de l'entete viennent du releve global, pas du
+        // trace : ils sont relus a chaque rafraichissement.
+        function majEntete() {
+            var reference = actifCourant(actif.id) || actif;
+            prix.textContent = formaterPrix(reference.prix, devise);
+            variation.className = classeVariation(reference.variation_24h);
+            variation.textContent = formaterVariation(reference.variation_24h);
+            return reference;
+        }
 
-        C.appeler('/marche/historique/' + encodeURIComponent(actif.id)
-            + '?devise=' + devise.toLowerCase())
-            .then(function (resultat) {
-                // La boite a pu etre fermee pendant l'attente : plus rien a remplir
-                if (!boite.isConnected) return;
+        function tracer(forcer) {
+            var reference = majEntete();
 
-                // La couleur suit la variation affichee juste au-dessus ; a defaut,
-                // c'est le trace lui-meme qui tranche entre hausse et baisse.
-                var hausse;
-                if (actif.variation_24h !== null && actif.variation_24h !== undefined) {
-                    hausse = actif.variation_24h >= 0;
-                } else if (resultat.points.length > 1) {
-                    hausse = Number(resultat.points[resultat.points.length - 1].prix)
-                        >= Number(resultat.points[0].prix);
-                } else {
-                    hausse = null;
-                }
+            // Le trace precedent et son pied s'en vont : ils portent les valeurs
+            // du releve qu'on est justement en train de remplacer.
+            C.vider(zone);
+            pied.remove();
+            etat.className = 'aide';
+            etat.textContent = 'Chargement du graphique…';
 
-                var trace = tracerGraphique(resultat.points, resultat.devise, hausse);
-                zone.appendChild(trace.svg);
+            return C.appeler('/marche/historique/' + encodeURIComponent(actif.id)
+                + '?devise=' + devise.toLowerCase() + (forcer ? '&forcer=1' : ''))
+                .then(function (resultat) {
+                    // La boite a pu etre fermee pendant l'attente : plus rien a remplir
+                    if (!boite.isConnected) return;
 
-                etat.textContent = 'Cours des 24 dernières heures · source ' + resultat.source
-                    + ' · relevé ' + ilYA(resultat.releve_le);
+                    // La couleur suit la variation affichee juste au-dessus ; a defaut,
+                    // c'est le trace lui-meme qui tranche entre hausse et baisse.
+                    var hausse;
+                    if (reference.variation_24h !== null && reference.variation_24h !== undefined) {
+                        hausse = reference.variation_24h >= 0;
+                    } else if (resultat.points.length > 1) {
+                        hausse = Number(resultat.points[resultat.points.length - 1].prix)
+                            >= Number(resultat.points[0].prix);
+                    } else {
+                        hausse = null;
+                    }
 
-                bornes.textContent = 'Plus bas ' + formaterPrix(trace.mini, resultat.devise)
-                    + ' · plus haut ' + formaterPrix(trace.maxi, resultat.devise);
+                    var trace = tracerGraphique(resultat.points, resultat.devise, hausse);
+                    zone.appendChild(trace.svg);
 
-                function lire(rang) {
-                    var point = resultat.points[rang];
-                    lecture.textContent = heureParis(point.horodatage) + ' · '
-                        + formaterPrix(point.prix, resultat.devise);
-                }
+                    etat.textContent = 'Cours des 24 dernières heures · source ' + resultat.source
+                        + ' · relevé ' + ilYA(resultat.releve_le);
 
-                trace.svg.addEventListener('pointermove', function (evenement) {
-                    var rang = trace.rangSousPointeur(evenement.clientX);
-                    trace.placer(rang);
-                    lire(rang);
-                });
-                trace.svg.addEventListener('pointerleave', function () {
-                    trace.masquer();
+                    bornes.textContent = 'Plus bas ' + formaterPrix(trace.mini, resultat.devise)
+                        + ' · plus haut ' + formaterPrix(trace.maxi, resultat.devise);
+
+                    function lire(rang) {
+                        var point = resultat.points[rang];
+                        lecture.textContent = heureParis(point.horodatage) + ' · '
+                            + formaterPrix(point.prix, resultat.devise);
+                    }
+
+                    trace.svg.addEventListener('pointermove', function (evenement) {
+                        var rang = trace.rangSousPointeur(evenement.clientX);
+                        trace.placer(rang);
+                        lire(rang);
+                    });
+                    trace.svg.addEventListener('pointerleave', function () {
+                        trace.masquer();
+                        lire(resultat.points.length - 1);
+                    });
+
                     lire(resultat.points.length - 1);
+                    boite.appendChild(pied);
+                })
+                .catch(function (erreur) {
+                    if (!boite.isConnected) return;
+                    etat.className = 'erreur';
+                    etat.textContent = erreur.message || 'Graphique momentanément indisponible.';
                 });
+        }
 
-                lire(resultat.points.length - 1);
-                boite.appendChild(pied);
-            })
-            .catch(function (erreur) {
-                if (!boite.isConnected) return;
-                etat.className = 'erreur';
-                etat.textContent = erreur.message || 'Graphique momentanément indisponible.';
-            });
+        // Le prix de l'entete ne vient pas du trace mais du releve global : les
+        // deux sont redemandes, sinon l'entete resterait figee a l'ouverture.
+        function rafraichir() {
+            return rafraichirCours().then(function () { return tracer(true); });
+        }
+
+        ouvrirDialogue(boite);
+        tracer(false);
     }
 
     // Un cours du bandeau ouvre son propre graphique. C'est pour cela que le
@@ -676,6 +773,13 @@
             .catch(function () { /* la derniere valeur connue reste affichee */ });
     }
 
+    // Rafraichissement demande depuis une vignette : le releve complet est
+    // redemande, puis tout ce qui l'affiche est refait — blocs de la page,
+    // bandeau de l'en-tete et boite « Cours » si elle est ouverte.
+    function rafraichirCours() {
+        return chargerCours(true).then(rendre);
+    }
+
     function chargerActus(forcer) {
         return C.appeler('/actualites?limite=' + NOMBRE_ACTUS + (forcer ? '&forcer=1' : ''))
             .then(function (resultat) { donnees.actus = resultat; })
@@ -703,11 +807,15 @@
     }
 
     function rendre() {
-        if (estConnecte) rendreEncart();
-        else rendreSections();
+        // Le bandeau de l'en-tete est affiche dans les deux cas : hors connexion,
+        // les blocs defilants de la page viennent s'y ajouter.
+        rendreEncart();
+        if (!estConnecte) rendreSections();
+        if (refaireBoiteCours) refaireBoiteCours();
     }
 
-    // connecte === true : bandeau dans l'en-tete. Sinon : blocs defilants de la page.
+    // Les blocs defilants de la page ne servent qu'au visiteur non connecte :
+    // le bandeau de l'en-tete, lui, reste visible dans les deux cas.
     function appliquer(connecte) {
         estConnecte = !!connecte;
 
@@ -717,7 +825,7 @@
 
         if (sectionMarche) sectionMarche.hidden = estConnecte;
         if (sectionActus) sectionActus.hidden = estConnecte;
-        if (encart) encart.hidden = !estConnecte;
+        if (encart) encart.hidden = false;
 
         charger().then(rendre);
 

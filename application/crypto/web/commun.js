@@ -435,8 +435,83 @@
 
     demarrerHorloge();
 
+    // Amorcage des pages reservees aux comptes connectes : session verifiee,
+    // compte et bandeau de marche affiches, puis la page fait son travail.
+    // Elle doit fournir #zone-deconnecte et #erreur-page ; le reste lui
+    // appartient. Les pages plus anciennes font encore cela chacune de leur
+    // cote : elles pourront venir ici sans rien changer a leur comportement.
+    function pageConnectee(surConnecte) {
+        var deconnecte = document.getElementById('zone-deconnecte');
+        var erreur = document.getElementById('erreur-page');
+
+        function montrerDeconnecte() {
+            if (deconnecte) deconnecte.hidden = false;
+        }
+
+        if (!lireJeton()) {
+            montrerDeconnecte();
+            return Promise.resolve(null);
+        }
+
+        return appeler('/moi')
+            .then(function (compte) {
+                definirDevise(compte.devise, { enregistrer: false });
+                afficherCompte(compte, {
+                    surDeconnexion: function () { window.location.href = '/'; },
+                });
+                if (window.Marche) window.Marche.appliquer(true);
+
+                return Promise.resolve(surConnecte ? surConnecte(compte) : null)
+                    .then(function () { return compte; });
+            })
+            .catch(function (err) {
+                // Session expiree : la page se referme proprement plutot que
+                // d'afficher une erreur technique.
+                if (err.code === 401) {
+                    effacerJeton();
+                    montrerDeconnecte();
+                    return null;
+                }
+                if (erreur) {
+                    erreur.textContent = err.message;
+                    erreur.hidden = false;
+                }
+                return null;
+            });
+    }
+
+    // Types d'opération, dans l'ordre où ils sont proposés. Le staking fait
+    // entrer de la crypto comme un achat, mais sans contrepartie en argent :
+    // ni frais, ni prix d'acquisition à imputer.
+    var TYPES_OPERATION = [
+        { valeur: 'achat', libelle: 'Achat', pluriel: 'Achats' },
+        { valeur: 'vente', libelle: 'Vente', pluriel: 'Ventes' },
+        { valeur: 'staking', libelle: 'Staking', pluriel: 'Staking' },
+    ];
+
+    function typesOperation() {
+        return TYPES_OPERATION.slice();
+    }
+
+    function libelleType(valeur) {
+        var trouve = TYPES_OPERATION.filter(function (type) { return type.valeur === valeur; });
+        return trouve.length ? trouve[0].libelle : valeur;
+    }
+
+    // Étiquette colorée d'un type, telle qu'elle apparaît dans les tableaux
+    function etiquetteType(valeur) {
+        var element = document.createElement('span');
+        element.className = 'etiquette-sens etiquette-' + valeur;
+        element.textContent = libelleType(valeur);
+        return element;
+    }
+
     window.Crypto = {
         appeler: appeler,
+        pageConnectee: pageConnectee,
+        typesOperation: typesOperation,
+        libelleType: libelleType,
+        etiquetteType: etiquetteType,
         lireJeton: lireJeton,
         ecrireJeton: ecrireJeton,
         effacerJeton: effacerJeton,

@@ -9,6 +9,9 @@ const google = require('./google');
 const marche = require('./marche');
 const actualites = require('./actualites');
 const valeurs = require('./valeurs');
+const plusvalues = require('./plusvalues');
+const importation = require('./importation');
+const sauvegarde = require('./sauvegarde');
 const motdepasse = require('../../_commun/api/motdepasse');
 const courriel = require('../../_commun/api/courriel');
 
@@ -132,7 +135,8 @@ route('GET', '/api/crypto/marche/cours', async ({ url }) => {
 // clic sur une carte. Publique comme les cours eux-memes.
 route('GET', '/api/crypto/marche/historique/:actif', async ({ params, url }) => {
     try {
-        const donnees = await marche.historique(params.actif, url.searchParams.get('devise'));
+        const donnees = await marche.historique(params.actif, url.searchParams.get('devise'),
+            url.searchParams.get('forcer') === '1');
         return { code: 200, corps: donnees };
     } catch (err) {
         throw new ErreurClient(err.message, Number.isInteger(err.code) ? err.code : 503);
@@ -420,17 +424,27 @@ route('POST', '/api/crypto/valeurs', async ({ req, corps }) => {
 // Chaque utilisateur ne voit et n'ecrit que ses propres operations :
 // l'identifiant vient du jeton de session, jamais du corps de la requete.
 
-// Montant total de l'operation, signe selon le sens : negatif quand l'argent
-// sort (achat), positif quand il rentre (vente). Les frais suivent le meme sens.
+// Montant total de l'operation : negatif quand l'argent sort (achat), positif
+// quand il rentre (vente). Les frais suivent le meme sens. Une recompense de
+// staking ne deplace aucun argent : elle n'a pas de montant, meme si sa valeur
+// a la reception est renseignee.
 const MONTANT_SQL = `CASE
+        WHEN o.type = 'staking' THEN NULL
         WHEN o.prix_unitaire IS NULL THEN NULL
-        WHEN o.sens = 'achat' THEN -(o.quantite * o.prix_unitaire + o.frais)
+        WHEN o.type = 'achat' THEN -(o.quantite * o.prix_unitaire + o.frais)
         ELSE (o.quantite * o.prix_unitaire - o.frais)
     END`;
 
-const CHAMPS_OPERATION = `o.id, o.horodatage, o.sens, o.id_crypto, c.libelle,
+const CHAMPS_OPERATION = `o.id, o.horodatage, o.type, o.id_crypto, c.libelle,
                 o.quantite, o.plateforme,
                 o.prix_unitaire, o.frais, ${MONTANT_SQL}::text AS montant, o.cree_le`;
+
+// Le staking fait entrer de la crypto comme un achat, mais sans contrepartie
+// en argent : ni frais, ni prix d'acquisition a imputer.
+const TYPES_OPERATION = ['achat', 'vente', 'staking'];
+
+// Conventions admises pour le prix d'acquisition d'une recompense de staking
+const STAKING_ACQUISITION = ['nulle', 'valeur_recue'];
 
 function filtresOperations(utilisateurId, url) {
     const conditions = ['o.utilisateur_id = $1'];
@@ -452,13 +466,13 @@ function filtresOperations(utilisateurId, url) {
         conditions.push(`o.id_crypto = $${valeurs.length}`);
     }
 
-    const sens = url.searchParams.get('sens');
-    if (sens) {
-        if (sens !== 'achat' && sens !== 'vente') {
-            throw new ErreurClient('Filtre sens : achat ou vente attendu');
+    const type = url.searchParams.get('type');
+    if (type) {
+        if (!TYPES_OPERATION.includes(type)) {
+            throw new ErreurClient(`Filtre type : ${TYPES_OPERATION.join(', ')} attendu`);
         }
-        valeurs.push(sens);
-        conditions.push(`o.sens = $${valeurs.length}`);
+        valeurs.push(type);
+        conditions.push(`o.type = $${valeurs.length}`);
     }
 
     return { ou: conditions.join(' AND '), valeurs };
@@ -512,38 +526,91 @@ route('GET', '/api/crypto/operations/annees', async ({ req }) => {
     return { code: 200, corps: rows.map((ligne) => ligne.annee) };
 });
 
+// Plus-values de cession de l'annee demandee, detaillees par crypto. Le calcul
+// porte sur tout l'historique du compte, pas sur la seule annee affichee :
+// c'est la seule facon d'imputer les fractions de capital initial deja
+// consommees par les cessions anterieures.
+route('GET', '/api/crypto/plus-values', async ({ req, url }) => {
+    const utilisateur = await exigerConnexion(req);
+    const demandee = url.searchParams.get('annee');
+    const annee = demandee
+        ? exigerEntier(demandee, 'annee')
+        : Number(valeurs.jourParis(new Date()).slice(0, 4));
+
+    return { code: 200, corps: await plusvalues.parAnnee(utilisateur.id, annee) };
+});
+
 function lireOperation(corps) {
-    const sens = exigerTexte(corps, 'sens').toLowerCase();
-    if (sens !== 'achat' && sens !== 'vente') {
-        throw new ErreurClient('Champ sens : achat ou vente attendu');
+    const type = exigerTexte(corps, 'type').toLowerCase();
+    if (!TYPES_OPERATION.includes(type)) {
+        throw new ErreurClient(`Champ type : ${TYPES_OPERATION.join(', ')} attendu`);
+    }
+
+    const frais = exigerDecimal(corps, 'frais', false) || '0';
+
+    // Une recompense de staking ne s'achete pas : des frais dessus ne veulent
+    // rien dire. Refuses plutot que ramenes a zero en silence, pour que la
+    // saisie soit corrigee la ou elle est fausse.
+    if (type === 'staking' && Number(frais) !== 0) {
+        throw new ErreurClient('Une opération de staking ne porte pas de frais');
     }
 
     return {
-        sens,
+        type,
         idCrypto: exigerTexte(corps, 'id_crypto').toUpperCase(),
         quantite: exigerDecimal(corps, 'quantite'),
         horodatage: exigerDate(corps.horodatage, 'horodatage'),
         plateforme: corps.plateforme ? String(corps.plateforme).trim() : null,
         prixUnitaire: exigerDecimal(corps, 'prix_unitaire', false),
-        frais: exigerDecimal(corps, 'frais', false) || '0',
+        frais,
     };
 }
 
 // Une vente est une cession imposable : la valeur du jour de toutes les cryptos
-// detenues est relevee et figee, car c'est elle qui servira a calculer la valeur
-// globale du portefeuille au moment de la cession. Un echec de la source ne fait
+// detenues est relevee, car c'est elle qui servira a calculer la valeur globale
+// du portefeuille au moment de la cession. Relevee le jour meme, elle ne porte
+// qu'une bougie partielle : les journees de vente anterieures restees
+// incompletes sont donc terminees dans la foulee. Un echec de la source ne fait
 // pas echouer l'enregistrement de l'operation : le releve pourra etre rejoue.
+// Une journee sans valorisation sous-evalue le portefeuille au moment de la
+// cession. L'interface ne lit pas encore le bilan renvoye par l'API : le
+// journal du serveur est pour l'instant le seul endroit ou cela se voit.
+function journaliserEchecs(echecs) {
+    (echecs || []).forEach((echec) => {
+        console.error('Valeur journalière non relevée :',
+            echec.id_crypto || '?', echec.jour || '', echec.raison);
+    });
+}
+
 async function releverSiVente(utilisateurId, operation) {
-    if (operation.sens !== 'vente') return null;
+    if (operation.type !== 'vente') return null;
     try {
-        return await valeurs.releverPourUtilisateur(
+        const bilan = await valeurs.releverPourUtilisateur(
             utilisateurId,
             valeurs.jourParis(new Date(operation.horodatage))
         );
+        bilan.reprise = await valeurs.completerPartielles(utilisateurId);
+        journaliserEchecs(bilan.echecs);
+        journaliserEchecs(bilan.reprise.echecs);
+        return bilan;
     } catch (err) {
         console.error('Relevé des valeurs après une vente :', err.message);
         return { jour: null, releves: [], deja: [], echecs: [{ raison: err.message }] };
     }
+}
+
+// Les journees de vente relevees avant leur cloture ne portent qu'une moyenne
+// partielle. La reprise est lancee a la connexion, en arriere-plan : elle ne
+// doit ni retarder ni faire echouer l'ouverture de la session.
+function completerValeursEnFond(utilisateurId) {
+    valeurs.completerPartielles(utilisateurId)
+        .then((bilan) => {
+            if (bilan.completees.length) {
+                console.log('Valeurs journalières complétées :', bilan.completees.length);
+            }
+            journaliserEchecs(bilan.echecs);
+        })
+        .catch((err) => console.error('Reprise des valeurs journalières :', err.message));
 }
 
 route('POST', '/api/crypto/operations', async ({ req, corps }) => {
@@ -552,11 +619,11 @@ route('POST', '/api/crypto/operations', async ({ req, corps }) => {
 
     const { rows } = await db.requete(
         `INSERT INTO operation
-             (utilisateur_id, horodatage, sens, id_crypto, quantite, plateforme,
+             (utilisateur_id, horodatage, type, id_crypto, quantite, plateforme,
               prix_unitaire, frais)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING id`,
-        [utilisateur.id, saisie.horodatage, saisie.sens, saisie.idCrypto, saisie.quantite,
+        [utilisateur.id, saisie.horodatage, saisie.type, saisie.idCrypto, saisie.quantite,
          saisie.plateforme, saisie.prixUnitaire, saisie.frais]
     );
 
@@ -579,11 +646,11 @@ route('PUT', '/api/crypto/operations/:id', async ({ req, params, corps }) => {
 
     const { rows } = await db.requete(
         `UPDATE operation
-         SET horodatage = $3, sens = $4, id_crypto = $5, quantite = $6,
+         SET horodatage = $3, type = $4, id_crypto = $5, quantite = $6,
              plateforme = $7, prix_unitaire = $8, frais = $9
          WHERE id = $1 AND utilisateur_id = $2
          RETURNING id`,
-        [id, utilisateur.id, saisie.horodatage, saisie.sens, saisie.idCrypto,
+        [id, utilisateur.id, saisie.horodatage, saisie.type, saisie.idCrypto,
          saisie.quantite, saisie.plateforme, saisie.prixUnitaire, saisie.frais]
     );
     if (!rows.length) throw new ErreurClient('Opération introuvable', 404);
@@ -613,6 +680,90 @@ route('DELETE', '/api/crypto/operations/:id', async ({ req, params }) => {
     // Les valeurs de marche relevees ne sont pas supprimees : elles ne sont pas
     // la propriete de l'operation et peuvent servir a d'autres cessions.
     return { code: 200, corps: { statut: 'operation supprimee', id } };
+});
+
+// --- Import d'operations ---------------------------------------------------
+// Le modele et la description des colonnes sont publics : ils ne portent
+// aucune donnee de compte, et le lien de telechargement est un <a> ordinaire,
+// qui ne peut pas presenter le jeton de session.
+const TYPE_CLASSEUR = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
+route('GET', '/api/crypto/importation/modele', async () => {
+    // Le classeur est construit a la demande : ses listes deroulantes tiennent
+    // leurs valeurs du referentiel, qui bouge.
+    let contenu;
+    try {
+        contenu = await importation.modele();
+    } catch (err) {
+        throw new ErreurClient('Modèle indisponible : ' + err.message, 503);
+    }
+
+    return {
+        code: 200,
+        brut: {
+            contenu,
+            entetes: {
+                'Content-Type': TYPE_CLASSEUR,
+                'Content-Disposition': 'attachment; filename="modele-operations.xlsx"',
+                'Content-Length': contenu.length,
+                'Cache-Control': 'no-cache',
+            },
+        },
+    };
+});
+
+route('GET', '/api/crypto/importation/colonnes', async () => ({
+    code: 200,
+    corps: importation.description(),
+}));
+
+// Chaque vente importee est une cession : la valeur du portefeuille au jour ou
+// elle a eu lieu est relevee dans la foulee, comme pour une saisie a l'unite.
+async function releverApresImport(utilisateurId, jours) {
+    const bilans = [];
+    for (const jour of jours) {
+        try {
+            bilans.push(await valeurs.releverPourUtilisateur(utilisateurId, jour));
+        } catch (err) {
+            bilans.push({ jour, releves: [], deja: [], echecs: [{ raison: err.message }] });
+        }
+    }
+    bilans.forEach((bilan) => journaliserEchecs(bilan.echecs));
+    return bilans;
+}
+
+// simuler : le fichier est controle et le rapport rendu sans rien ecrire.
+// C'est le premier passage de l'interface, pour qu'un fichier a corriger ne
+// laisse pas la moitie de ses lignes en base.
+// Le fichier arrive en base64 : un classeur est binaire, et le corps des
+// requetes de cette API est du JSON. C'est la signature des octets, pas
+// l'extension annoncee, qui dira si c'est un classeur ou un CSV.
+route('POST', '/api/crypto/importation', async ({ req, corps }) => {
+    const utilisateur = await exigerConnexion(req);
+    if (typeof corps.fichier !== 'string' || !corps.fichier.trim()) {
+        throw new ErreurClient('Champ requis : fichier');
+    }
+
+    const octets = Buffer.from(corps.fichier, 'base64');
+    if (!octets.length) throw new ErreurClient('Fichier vide ou illisible');
+
+    let rapport;
+    try {
+        rapport = await importation.importer(utilisateur.id, octets, corps.simuler === true);
+    } catch (err) {
+        // Seules les erreurs de lecture du fichier sont des erreurs du client ;
+        // une panne de base reste une erreur serveur.
+        if (err.code === 400) throw new ErreurClient(err.message, 400);
+        throw err;
+    }
+
+    if (rapport.jours_de_vente.length) {
+        rapport.valeurs = await releverApresImport(utilisateur.id, rapport.jours_de_vente);
+        rapport.reprise = await valeurs.completerPartielles(utilisateur.id);
+        journaliserEchecs(rapport.reprise.echecs);
+    }
+
+    return { code: rapport.importees ? 201 : 200, corps: rapport };
 });
 
 // --- Logos des cryptos -----------------------------------------------------
@@ -722,13 +873,13 @@ route('GET', '/api/crypto/mon-portefeuille', async ({ req }) => {
     const { rows } = await db.requete(
         `SELECT o.id_crypto,
                 c.libelle,
-                SUM(CASE WHEN o.sens = 'achat' THEN o.quantite ELSE -o.quantite END)::text AS quantite,
+                SUM(CASE WHEN o.type = 'vente' THEN -o.quantite ELSE o.quantite END)::text AS quantite,
                 count(*)::int AS operations
          FROM operation o
          JOIN crypto c ON c.id = o.id_crypto
          WHERE o.utilisateur_id = $1
          GROUP BY o.id_crypto, c.libelle
-         HAVING SUM(CASE WHEN o.sens = 'achat' THEN o.quantite ELSE -o.quantite END) > 0
+         HAVING SUM(CASE WHEN o.type = 'vente' THEN -o.quantite ELSE o.quantite END) > 0
          ORDER BY c.libelle`,
         [utilisateur.id]
     );
@@ -761,6 +912,7 @@ function comptePublic(ligne) {
         mot_de_passe_a_definir: ligne.mot_de_passe_a_definir,
         plateforme_defaut: ligne.plateforme_defaut,
         frais_defaut: ligne.frais_defaut,
+        staking_acquisition: ligne.staking_acquisition,
         cree_le: ligne.cree_le,
     };
 }
@@ -781,7 +933,7 @@ const MAX_TENTATIVES = 3;
 const DUREE_REINITIALISATION = 60 * 60 * 1000;
 
 const CHAMPS_COMPTE = `id, courriel, nom, prenom, est_actif, est_admin, devise,
-                autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`;
+                autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`;
 
 function messageBloque() {
     return new ErreurClient(
@@ -839,6 +991,7 @@ route('POST', '/api/crypto/connexion', async ({ corps }) => {
     }
 
     const session = await auth.creerSession(ligne.id);
+    completerValeursEnFond(ligne.id);
     return { code: 200, corps: { utilisateur: comptePublic(ligne), ...session } };
 });
 
@@ -887,6 +1040,7 @@ route('POST', '/api/crypto/connexion/google', async ({ corps }) => {
     if (!rows[0].est_actif) throw new ErreurClient('Ce compte est desactive', 403);
 
     const session = await auth.creerSession(rows[0].id);
+    completerValeursEnFond(rows[0].id);
     return { code: 200, corps: { utilisateur: comptePublic(rows[0]), ...session } };
 });
 
@@ -1026,12 +1180,23 @@ route('PUT', '/api/crypto/moi', async ({ req, corps }) => {
         : null;
     const fraisDefaut = exigerDecimal(corps, 'frais_defaut', false);
 
+    // Convention fiscale retenue pour les recompenses de staking. Elle change
+    // le montant des plus-values : elle appartient au contribuable, pas au
+    // code, et vaut « nulle » tant qu'il n'a rien dit.
+    const stakingAcquisition = String(corps.staking_acquisition
+        || utilisateur.staking_acquisition || 'nulle');
+    if (!STAKING_ACQUISITION.includes(stakingAcquisition)) {
+        throw new ErreurClient(
+            `Champ staking_acquisition : ${STAKING_ACQUISITION.join(' ou ')} attendu`);
+    }
+
     const { rows } = await db.requete(
         `UPDATE utilisateur SET courriel = $2, nom = $3, prenom = $4, devise = $5,
-                plateforme_defaut = $6, frais_defaut = $7
+                plateforme_defaut = $6, frais_defaut = $7, staking_acquisition = $8
          WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`,
-        [utilisateur.id, adresse, nom, prenom, devise, plateformeDefaut, fraisDefaut]
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`,
+        [utilisateur.id, adresse, nom, prenom, devise, plateformeDefaut, fraisDefaut,
+         stakingAcquisition]
     );
     if (!rows.length) throw new ErreurClient('Compte introuvable', 404);
 
@@ -1053,7 +1218,7 @@ route('PUT', '/api/crypto/moi/devise', async ({ req, corps }) => {
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET devise = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`,
         [utilisateur.id, devise]
     );
     return { code: 200, corps: comptePublic(rows[0]) };
@@ -1087,7 +1252,7 @@ route('GET', '/api/crypto/administration/utilisateurs', async ({ req }) => {
     await exigerAdmin(req);
 
     const { rows } = await db.requete(
-        `SELECT id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le,
+        `SELECT id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le,
                 (mot_de_passe_hash IS NOT NULL) AS a_mot_de_passe,
                 (google_sub IS NOT NULL) AS a_google,
                 (SELECT count(*) FROM session s WHERE s.utilisateur_id = u.id AND s.expire_le > now())::int AS sessions_ouvertes,
@@ -1110,7 +1275,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/activation', async ({
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET est_actif = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`,
         [id, estActif]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1143,7 +1308,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/administrateur', asyn
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET est_admin = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`,
         [id, estAdmin]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1160,7 +1325,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/google', async ({ req
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET autorise_google = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`,
         [id, autorise]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1176,7 +1341,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/deblocage', async ({ 
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET est_bloque = FALSE, tentatives_echouees = 0 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`,
         [id]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1224,7 +1389,7 @@ route('POST', '/api/crypto/administration/utilisateurs', async ({ req, corps }) 
              (courriel, nom, prenom, mot_de_passe_hash, autorise_google, mot_de_passe_a_definir)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise,
-                   autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, cree_le`,
+                   autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`,
         [adresse, nom, prenom, empreinte, autoriseGoogle, aDefinir]
     );
 
@@ -1274,14 +1439,14 @@ route('POST', '/api/crypto/administration/valeurs/relever', async ({ req, corps 
     const fin = exigerTexte(corps, 'fin');
     const ecraser = corps.ecraser === true;
 
-    // Sans crypto précisée, toutes celles qui ont une paire Binance
+    // Sans crypto précisée, tout le référentiel. Celles qui n'ont pas de paire
+    // Binance ressortent en erreur dans le bilan plutôt que d'être écartées
+    // sans bruit : c'est une lacune du référentiel, pas un cas normal.
     let cibles;
     if (corps.id_crypto) {
         cibles = [String(corps.id_crypto).toUpperCase()];
     } else {
-        const { rows } = await db.requete(
-            'SELECT id FROM crypto WHERE paire_binance IS NOT NULL ORDER BY id'
-        );
+        const { rows } = await db.requete('SELECT id FROM crypto ORDER BY id');
         cibles = rows.map((ligne) => ligne.id);
     }
 
@@ -1307,6 +1472,26 @@ route('DELETE', '/api/crypto/administration/valeurs/:crypto/:date', async ({ req
     );
     if (!rows.length) throw new ErreurClient('Valeur introuvable', 404);
     return { code: 200, corps: { statut: 'valeur supprimee' } };
+});
+
+
+// --- Administration : sauvegardes ------------------------------------------
+route('GET', '/api/crypto/administration/sauvegardes', async ({ req }) => {
+    await exigerAdmin(req);
+    return { code: 200, corps: await sauvegarde.lister() };
+});
+
+// La copie des sources, l'extraction de la base, l'archive et son envoi tiennent
+// dans la requete : l'administrateur doit savoir si le courriel est parti.
+route('POST', '/api/crypto/administration/sauvegardes', async ({ req }) => {
+    const administrateur = await exigerAdmin(req);
+
+    try {
+        return { code: 201, corps: await sauvegarde.creer(administrateur.courriel) };
+    } catch (err) {
+        if (err.code === 409) throw new ErreurClient(err.message, 409);
+        throw err;
+    }
 });
 
 

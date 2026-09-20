@@ -253,6 +253,7 @@
         cryptos: document.getElementById('section-cryptos'),
         plateformes: document.getElementById('section-plateformes'),
         valeurs: document.getElementById('section-valeurs'),
+        sauvegardes: document.getElementById('section-sauvegardes'),
     };
 
     var chargeurs = {
@@ -260,6 +261,7 @@
         cryptos: chargerCryptos,
         plateformes: chargerPlateformes,
         valeurs: ouvrirValeurs,
+        sauvegardes: chargerSauvegardes,
     };
 
     var dejaCharge = {};
@@ -1115,6 +1117,148 @@
 
     remplirAnnees();
 
+    // --- Sauvegardes ------------------------------------------------------
+    var corpsSauvegardes = document.getElementById('corps-sauvegardes');
+    var tableauSauvegardes = document.getElementById('tableau-sauvegardes');
+    var chargementSauvegardes = document.getElementById('chargement-sauvegardes');
+    var racineSauvegardes = document.getElementById('racine-sauvegardes');
+    var resultatSauvegarde = document.getElementById('resultat-sauvegarde');
+    var boutonSauvegarder = document.getElementById('bouton-sauvegarder');
+
+    var listeSauvegardes = [];
+
+    function formaterOctets(octets) {
+        if (octets === null || octets === undefined) return '—';
+        if (octets < 1024) return octets + ' o';
+        if (octets < 1024 * 1024) return (octets / 1024).toFixed(1) + ' Ko';
+        return (octets / (1024 * 1024)).toFixed(1) + ' Mo';
+    }
+
+    function etiquetteEtat(texte, classe, infobulle) {
+        var element = document.createElement('span');
+        element.className = 'etiquette-sens ' + classe;
+        element.textContent = texte;
+        if (infobulle) element.title = infobulle;
+        return element;
+    }
+
+    // Une sauvegarde reste sur le disque même si le courriel n'est pas parti :
+    // l'état de l'envoi se lit d'un coup d'œil, la cause en infobulle.
+    function etatCourriel(ligne) {
+        if (ligne.statut !== 'terminee') return etiquetteEtat('Inachevée', 'etiquette-rejetee');
+        if (!ligne.courriel) return document.createTextNode('—');
+
+        if (!ligne.courriel.envoye) {
+            return etiquetteEtat('Échec', 'etiquette-rejetee', ligne.courriel.erreur || '');
+        }
+
+        var infobulle = 'Envoyé à ' + ligne.courriel.destinataire;
+        return ligne.courriel.piece_jointe
+            ? etiquetteEtat('Envoyé', 'etiquette-importee', infobulle)
+            : etiquetteEtat('Sans pièce jointe', 'etiquette-doublon',
+                infobulle + " — l'archive dépassait la taille autorisée");
+    }
+
+    function identiteSauvegarde(ligne) {
+        var conteneur = document.createElement('div');
+
+        var quand = document.createElement('span');
+        quand.className = 'cellule-nom';
+        quand.textContent = C.formaterDateHeure(ligne.horodatage);
+        conteneur.appendChild(quand);
+
+        var dossier = document.createElement('span');
+        dossier.className = 'cellule-courriel';
+        dossier.textContent = ligne.dossier;
+        conteneur.appendChild(dossier);
+
+        return conteneur;
+    }
+
+    function afficherSauvegardes(lignes) {
+        listeSauvegardes = lignes;
+        C.vider(corpsSauvegardes);
+
+        if (!lignes.length) {
+            var vide = document.createElement('tr');
+            var celluleVide = document.createElement('td');
+            celluleVide.colSpan = 5;
+            celluleVide.className = 'espace-vide';
+            celluleVide.textContent = 'Aucune sauvegarde pour le moment.';
+            vide.appendChild(celluleVide);
+            corpsSauvegardes.appendChild(vide);
+            return;
+        }
+
+        lignes.forEach(function (ligne) {
+            var tr = document.createElement('tr');
+
+            tr.appendChild(cellule(identiteSauvegarde(ligne)));
+            tr.appendChild(cellule(ligne.source
+                ? ligne.source.fichiers + ' fichiers · ' + formaterOctets(ligne.source.octets)
+                : '—'));
+            tr.appendChild(cellule(ligne.bdd
+                ? ligne.bdd.tables + ' tables · ' + ligne.bdd.lignes + ' lignes'
+                : '—'));
+
+            var archive = document.createElement('td');
+            archive.className = 'cellule-nombre';
+            archive.textContent = ligne.archive ? formaterOctets(ligne.archive.octets) : '—';
+            tr.appendChild(archive);
+
+            tr.appendChild(cellule(etatCourriel(ligne)));
+
+            corpsSauvegardes.appendChild(tr);
+        });
+    }
+
+    function chargerSauvegardes() {
+        return C.appeler('/administration/sauvegardes')
+            .then(function (reponse) {
+                chargementSauvegardes.hidden = true;
+                tableauSauvegardes.hidden = false;
+                racineSauvegardes.textContent = 'Dossier des sauvegardes : ' + reponse.racine;
+                racineSauvegardes.hidden = false;
+                afficherSauvegardes(reponse.sauvegardes);
+            })
+            .catch(function (err) {
+                chargementSauvegardes.hidden = true;
+                afficherErreur(err.message);
+            });
+    }
+
+    boutonSauvegarder.addEventListener('click', function () {
+        masquerErreur();
+        boutonSauvegarder.disabled = true;
+
+        // La copie des sources, l'extraction de la base et l'envoi du courriel
+        // tiennent dans le même appel : il peut durer plusieurs secondes.
+        resultatSauvegarde.textContent = 'Sauvegarde en cours…';
+        resultatSauvegarde.hidden = false;
+
+        C.appeler('/administration/sauvegardes', { method: 'POST' })
+            .then(function (manifeste) {
+                var etat = manifeste.courriel && manifeste.courriel.envoye
+                    ? 'courriel envoyé à ' + manifeste.courriel.destinataire
+                      + (manifeste.courriel.piece_jointe ? ' avec l’archive' : ' sans l’archive')
+                    : 'courriel non envoyé'
+                      + (manifeste.courriel && manifeste.courriel.erreur
+                          ? ' (' + manifeste.courriel.erreur + ')' : '');
+
+                resultatSauvegarde.textContent = 'Sauvegarde ' + manifeste.dossier + ' terminée : '
+                    + manifeste.source.fichiers + ' fichiers, '
+                    + manifeste.bdd.lignes + ' lignes de base, archive de '
+                    + formaterOctets(manifeste.archive.octets) + ' — ' + etat + '.';
+
+                return chargerSauvegardes();
+            })
+            .catch(function (err) {
+                resultatSauvegarde.hidden = true;
+                afficherErreur(err.message);
+            })
+            .finally(function () { boutonSauvegarder.disabled = false; });
+    });
+
     // --- Colonnes triables ------------------------------------------------
     brancherTri('tableau-utilisateurs', [
         function (l) { return l.prenom + ' ' + l.nom; },
@@ -1148,6 +1292,14 @@
         function (l) { return l.source; },
         null,
     ], function () { return listeValeurs; }, afficherValeurs);
+
+    brancherTri('tableau-sauvegardes', [
+        function (l) { return l.horodatage; },
+        function (l) { return l.source ? l.source.octets : 0; },
+        function (l) { return l.bdd ? l.bdd.lignes : 0; },
+        function (l) { return l.archive ? l.archive.octets : 0; },
+        function (l) { return l.courriel ? Boolean(l.courriel.envoye) : false; },
+    ], function () { return listeSauvegardes; }, afficherSauvegardes);
 
     // --- Demarrage --------------------------------------------------------
     if (!C.lireJeton()) {

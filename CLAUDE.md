@@ -52,6 +52,7 @@ application/
 ## Code partagé
 
 - `application/_commun/api/` contient les briques techniques réutilisables par toutes les applications :
-  `env.js` (lecture du `.env`), `db.js` (pool PostgreSQL), `motdepasse.js` (empreintes scrypt)
+  `env.js` (lecture du `.env`), `db.js` (pool PostgreSQL), `motdepasse.js` (empreintes scrypt),
+  `courriel.js` (envoi SMTP, pièces jointes comprises), `zip.js` (archives ZIP)
 - Ces modules ne contiennent aucune règle métier et ne connaissent aucune table
 - Une application les importe en chemin relatif : `require('../../_commun/api/db')`

@@ -17,7 +17,7 @@
     </a>
 
     <div class="entete-droite">
-        <!-- Cours en continu, visible uniquement une fois connecté -->
+        <!-- Cours en continu, visible connecté comme non connecté -->
         <div class="encart-marche" id="encart-marche" hidden></div>
 
 
@@ -133,19 +133,47 @@
     </section>
 
     <div class="disposition" id="espace-connecte" hidden>
-        <!-- Colonne de gauche : les cryptos encore détenues -->
-        <aside class="panneau" aria-labelledby="titre-detentions">
-            <h2 class="bloc-titre" id="titre-detentions">
-                <svg class="bloc-icone" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M3 7a2 2 0 0 1 2-2h12v4"></path>
-                    <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9H5a2 2 0 0 1-2-2z"></path>
-                    <path d="M16 13h2"></path>
-                </svg>
-                Mes cryptos
-            </h2>
+        <!-- Colonne de gauche : les cryptos détenues, puis les plus-values -->
+        <div class="colonne-laterale">
+            <aside class="panneau" aria-labelledby="titre-detentions">
+                <h2 class="bloc-titre" id="titre-detentions">
+                    <svg class="bloc-icone" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M3 7a2 2 0 0 1 2-2h12v4"></path>
+                        <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9H5a2 2 0 0 1-2-2z"></path>
+                        <path d="M16 13h2"></path>
+                    </svg>
+                    Mes cryptos
+                </h2>
 
-            <ul class="liste-detentions" id="liste-detentions"></ul>
-        </aside>
+                <ul class="liste-detentions" id="liste-detentions"></ul>
+            </aside>
+
+            <!-- Plus-values de cession, année par année (article 150 VH bis) -->
+            <section class="panneau" aria-labelledby="titre-plus-values">
+                <h2 class="bloc-titre" id="titre-plus-values">
+                    <svg class="bloc-icone" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M3 3v16a2 2 0 0 0 2 2h16"></path>
+                        <path d="M7 14l4-4 3 3 5-6"></path>
+                        <path d="M15 7h4v4"></path>
+                    </svg>
+                    Mes plus-values
+                </h2>
+
+                <div class="annee-barre">
+                    <button type="button" class="fleche fleche-mini" id="pv-precedent"
+                            aria-label="Année précédente" aria-controls="pv-contenu">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4l-8 8 8 8"></path></svg>
+                    </button>
+                    <span class="annee-courante" id="pv-annee" aria-live="polite"></span>
+                    <button type="button" class="fleche fleche-mini" id="pv-suivant"
+                            aria-label="Année suivante" aria-controls="pv-contenu">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4l8 8-8 8"></path></svg>
+                    </button>
+                </div>
+
+                <div id="pv-contenu"></div>
+            </section>
+        </div>
 
         <div class="colonne-principale">
             <section class="espace">
@@ -154,25 +182,23 @@
                         <svg class="bloc-icone" viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M4 6h16M4 12h16M4 18h10"></path>
                         </svg>
-                        Dernières opérations
+                        Opérations
+                        <span class="compteur" id="operations-total"
+                              title="Nombre total d'opérations enregistrées" hidden></span>
                     </h2>
 
                     <div class="bloc-outils">
-                        <a class="bouton bouton-discret" href="/operations.html">Toutes les opérations</a>
+                        <a class="bouton bouton-discret" href="/operations.html">Filtrer les opérations</a>
                     </div>
                 </div>
 
                 <div id="operations-contenu"></div>
 
-                <nav class="pagination" id="operations-pagination" aria-label="Pagination des opérations" hidden>
-                    <button type="button" class="fleche" id="operations-precedent" aria-label="Page précédente">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4l-8 8 8 8"></path></svg>
-                    </button>
-                    <span class="pagination-position" id="operations-position"></span>
-                    <button type="button" class="fleche" id="operations-suivant" aria-label="Page suivante">
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4l8 8-8 8"></path></svg>
-                    </button>
-                </nav>
+                <!-- Sentinelle du défilement : dès qu'elle approche de l'écran,
+                     la tranche suivante est demandée -->
+                <div class="sentinelle" id="operations-sentinelle" aria-hidden="true"></div>
+
+                <p class="aide etat-suite" id="operations-etat" role="status"></p>
 
                 <div class="zone-ajout">
                     <button type="button" class="bouton-rond" id="bouton-ajout-operation"

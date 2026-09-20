@@ -23,6 +23,16 @@ services:
       CRYPTO_API_HOST: 0.0.0.0
       CRYPTO_API_PORT: 9998
       TZ: Europe/Paris
+      # Emplacement des sauvegardes vu du conteneur, toujours le point de
+      # montage ci-dessous : cote hote, c'est SAUVEGARDE_HOTE qui decide.
+      SAUVEGARDE_CHEMIN: /sauvegarde
+    volumes:
+      # Les sauvegardes vivent hors du conteneur : elles doivent survivre a une
+      # reconstruction de l'image. Par defaut le dossier Sauvegarde place a cote
+      # du depot, comme sur le poste de developpement ; pour le mettre ailleurs,
+      # definir SAUVEGARDE_HOTE dans application/crypto/.env, comme CRYPTO_ENV.
+      # Le dossier doit etre accessible en ecriture a l'utilisateur node (uid 1000).
+      - ${SAUVEGARDE_HOTE:-../../../Sauvegarde}:/sauvegarde
     ports:
       # Publie sur la boucle locale du NAS : seul le proxy inverse de DSM
       # atteint l'API, jamais le reseau local ni internet en direct.

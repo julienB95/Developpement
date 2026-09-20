@@ -77,25 +77,222 @@
             });
     }
 
-    // --- Dernieres operations ---------------------------------------------
-    var TAILLE_PAGE = 5;
+    // --- Plus-values par annee --------------------------------------------
+    var pvAnnee = document.getElementById('pv-annee');
+    var pvContenu = document.getElementById('pv-contenu');
+    var pvPrecedent = document.getElementById('pv-precedent');
+    var pvSuivant = document.getElementById('pv-suivant');
+
+    // Annee civile francaise : c'est elle qui fait foi pour la declaration,
+    // pas l'annee du fuseau du poste.
+    var ANNEE_COURANTE = Number(new Intl.DateTimeFormat('fr-CA', {
+        timeZone: 'Europe/Paris', year: 'numeric',
+    }).format(new Date()));
+
+    var anneePlusValues = ANNEE_COURANTE;
+
+    function messagePlusValues(texte, classe) {
+        C.vider(pvContenu);
+        var message = document.createElement('p');
+        message.className = classe || 'pv-vide';
+        message.textContent = texte;
+        pvContenu.appendChild(message);
+    }
+
+    // Les plus-values s'affichent au centime : formaterMontant arrondit les
+    // montants au-dela de 100 a l'unite, ce qui gommerait la difference entre
+    // deux cessions proches. La declaration, elle, reste en euro.
+    function formaterEuros(montant) {
+        var nombre = Number(montant);
+        if (montant === null || montant === undefined || !isFinite(nombre)) return '—';
+        return new Intl.NumberFormat('fr-FR', {
+            style: 'currency',
+            currency: 'EUR',
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        }).format(nombre);
+    }
+
+    // Le signe vient de la chaine decimale, pas du nombre : une perte minuscule
+    // arrondie a zero doit rester une perte.
+    function signerEuros(montant) {
+        if (montant === null || montant === undefined) return '—';
+        var formate = formaterEuros(montant);
+        return String(montant).charAt(0) === '-' ? formate : '+' + formate;
+    }
+
+    function classePlusValue(montant) {
+        if (montant === null || montant === undefined) return '';
+        return String(montant).charAt(0) === '-' ? 'pv-perte' : 'pv-gain';
+    }
+
+    function ligneCrypto(crypto) {
+        var item = document.createElement('li');
+        item.className = 'pv-ligne';
+        item.appendChild(C.logoCrypto(crypto.id_crypto));
+
+        var texte = document.createElement('span');
+        texte.className = 'pv-texte';
+
+        var nom = document.createElement('span');
+        nom.className = 'pv-libelle';
+        nom.textContent = crypto.libelle;
+
+        var detail = document.createElement('span');
+        detail.className = 'pv-detail';
+        detail.textContent = (crypto.cessions > 1 ? crypto.cessions + ' cessions' : '1 cession')
+            + ' · ' + formaterEuros(crypto.prix_cession) + ' cédés';
+
+        texte.appendChild(nom);
+        texte.appendChild(detail);
+
+        var montant = document.createElement('span');
+        montant.className = 'pv-montant ' + classePlusValue(crypto.plus_value);
+        montant.textContent = signerEuros(crypto.plus_value);
+
+        item.appendChild(texte);
+        item.appendChild(montant);
+        return item;
+    }
+
+    // Une plus-value calculee sur un portefeuille mal valorise est fausse, et
+    // toujours dans le meme sens : trop haute. Le chiffre reste affiche, mais
+    // jamais sans sa reserve.
+    function reservesDuBilan(donnees) {
+        var motifs = [];
+        donnees.cryptos.forEach(function (crypto) {
+            crypto.lignes.forEach(function (ligne) {
+                ligne.reserves.forEach(function (motif) {
+                    if (motifs.indexOf(motif) === -1) motifs.push(motif);
+                });
+            });
+        });
+        return motifs;
+    }
+
+    function rendrePlusValues(donnees) {
+        pvAnnee.textContent = donnees.annee;
+        pvPrecedent.disabled = donnees.premiere_annee !== null
+            && donnees.annee <= donnees.premiere_annee;
+        pvSuivant.disabled = donnees.annee >= ANNEE_COURANTE;
+
+        if (!donnees.cryptos.length) {
+            return messagePlusValues('Aucune cession en ' + donnees.annee + '.');
+        }
+
+        C.vider(pvContenu);
+
+        var total = document.createElement('div');
+        total.className = 'pv-total';
+
+        var libelle = document.createElement('span');
+        libelle.className = 'pv-total-libelle';
+        libelle.textContent = donnees.total.cessions > 1
+            ? donnees.total.cessions + ' cessions'
+            : '1 cession';
+
+        var montantTotal = document.createElement('span');
+        montantTotal.className = 'pv-total-montant ' + classePlusValue(donnees.total.plus_value);
+        montantTotal.textContent = signerEuros(donnees.total.plus_value);
+
+        total.appendChild(libelle);
+        total.appendChild(montantTotal);
+        pvContenu.appendChild(total);
+
+        var liste = document.createElement('ul');
+        liste.className = 'liste-pv';
+        donnees.cryptos.forEach(function (crypto) {
+            liste.appendChild(ligneCrypto(crypto));
+        });
+        pvContenu.appendChild(liste);
+
+        if (!donnees.complet) {
+            var alerte = document.createElement('p');
+            alerte.className = 'pv-reserve';
+            alerte.textContent = 'Chiffre à vérifier : ' + reservesDuBilan(donnees).join(' ; ') + '.';
+            pvContenu.appendChild(alerte);
+        }
+
+        // La convention de staking change le résultat : tant que le compte en
+        // compte au moins une, le chiffre affiché ne se lit pas sans elle.
+        if (donnees.staking && donnees.staking.operations) {
+            pvContenu.appendChild(noteStaking(donnees.staking.convention));
+        }
+    }
+
+    function noteStaking(convention) {
+        var note = document.createElement('p');
+        note.className = 'aide pv-convention';
+        note.appendChild(document.createTextNode(convention === 'valeur_recue'
+            ? 'Staking compté à sa valeur à la réception ('
+            : "Staking compté à un prix d'acquisition nul ("));
+
+        var lien = document.createElement('a');
+        lien.href = '/profil.html';
+        lien.textContent = 'profil';
+        note.appendChild(lien);
+
+        note.appendChild(document.createTextNode(').'));
+        return note;
+    }
+
+    function chargerPlusValues() {
+        if (!compteCourant || !pvContenu) return;
+
+        // L'annee est posee avant l'appel : meme en cas d'echec, l'entete dit
+        // sur quelle annee on se trouve.
+        pvAnnee.textContent = anneePlusValues;
+
+        C.appeler('/plus-values?annee=' + anneePlusValues)
+            .then(rendrePlusValues)
+            .catch(function (erreur) {
+                messagePlusValues('Plus-values indisponibles : ' + erreur.message, 'pv-reserve');
+            });
+    }
+
+    function changerAnnee(pas) {
+        anneePlusValues += pas;
+        chargerPlusValues();
+    }
+
+    if (pvPrecedent) {
+        pvPrecedent.addEventListener('click', function () { changerAnnee(-1); });
+    }
+    if (pvSuivant) {
+        pvSuivant.addEventListener('click', function () { changerAnnee(1); });
+    }
+
+    // --- Operations -------------------------------------------------------
+    // Toutes les operations du compte, par tranches chargees a mesure que l'on
+    // descend : plus de pages a parcourir une par une.
+    var TAILLE_PAGE = 20;
 
     var operationsContenu = document.getElementById('operations-contenu');
-    var operationsPagination = document.getElementById('operations-pagination');
-    var operationsPosition = document.getElementById('operations-position');
-    var operationsPrecedent = document.getElementById('operations-precedent');
-    var operationsSuivant = document.getElementById('operations-suivant');
+    var operationsTotal = document.getElementById('operations-total');
+    var operationsSentinelle = document.getElementById('operations-sentinelle');
+    var operationsEtat = document.getElementById('operations-etat');
     var boutonAjout = document.getElementById('bouton-ajout-operation');
 
-    var pageOperations = 1;
+    var pageOperations = 0;
+    var pagesOperations = 1;
+    var chargementOperations = false;
+
+    // Corps du tableau en cours de remplissage : les tranches suivantes s'y
+    // ajoutent, au lieu de reconstruire la liste entiere a chaque fois.
+    var corpsOperations = null;
+
+    function etatOperations(texte) {
+        if (operationsEtat) operationsEtat.textContent = texte;
+    }
 
     function messageOperations(texte) {
         C.vider(operationsContenu);
+        corpsOperations = null;
         var message = document.createElement('p');
         message.className = 'espace-vide';
         message.textContent = texte;
         operationsContenu.appendChild(message);
-        operationsPagination.hidden = true;
+        etatOperations('');
     }
 
     function cellule(texte, classe) {
@@ -117,13 +314,7 @@
         return String(montant).charAt(0) === '-' ? formate : '+' + formate;
     }
 
-    function rendreOperations(donnees) {
-        if (!donnees.lignes.length) {
-            return messageOperations(donnees.total
-                ? 'Aucune opération sur cette page.'
-                : 'Aucune opération enregistrée. Utilisez le bouton + pour en ajouter une.');
-        }
-
+    function construireTableau() {
         C.vider(operationsContenu);
 
         var enveloppe = document.createElement('div');
@@ -133,7 +324,7 @@
         tableau.className = 'tableau tableau-operations';
 
         var entete = document.createElement('tr');
-        ['Crypto', 'Date', 'Sens', 'Quantité', 'Montant'].forEach(function (titre, rang) {
+        ['Crypto', 'Date', 'Type', 'Quantité', 'Montant'].forEach(function (titre, rang) {
             var th = document.createElement('th');
             th.scope = 'col';
             th.textContent = titre;
@@ -144,77 +335,124 @@
         thead.appendChild(entete);
         tableau.appendChild(thead);
 
-        var corps = document.createElement('tbody');
-        donnees.lignes.forEach(function (ligne) {
-            var rangee = document.createElement('tr');
-
-            var identite = document.createElement('td');
-            var groupe = document.createElement('span');
-            groupe.className = 'cellule-identite';
-            groupe.appendChild(C.logoCrypto(ligne.id_crypto, 24));
-            var symbole = document.createElement('span');
-            symbole.className = 'cellule-nom';
-            symbole.textContent = ligne.id_crypto;
-            groupe.appendChild(symbole);
-            identite.appendChild(groupe);
-            rangee.appendChild(identite);
-
-            rangee.appendChild(cellule(C.formaterDateHeure(ligne.horodatage)));
-
-            var sens = document.createElement('td');
-            var etiquette = document.createElement('span');
-            etiquette.className = 'etiquette-sens etiquette-' + ligne.sens;
-            etiquette.textContent = ligne.sens === 'achat' ? 'Achat' : 'Vente';
-            sens.appendChild(etiquette);
-            rangee.appendChild(sens);
-
-            rangee.appendChild(cellule(C.formaterQuantite(ligne.quantite), 'cellule-nombre'));
-            rangee.appendChild(cellule(texteMontant(ligne.montant, 'EUR'), classeMontant(ligne.montant)));
-
-            corps.appendChild(rangee);
-        });
-        tableau.appendChild(corps);
+        corpsOperations = document.createElement('tbody');
+        tableau.appendChild(corpsOperations);
 
         enveloppe.appendChild(tableau);
         operationsContenu.appendChild(enveloppe);
-
-        operationsPagination.hidden = donnees.pages <= 1;
-        operationsPosition.textContent = 'Page ' + donnees.page + ' sur ' + donnees.pages;
-        operationsPrecedent.disabled = donnees.page <= 1;
-        operationsSuivant.disabled = donnees.page >= donnees.pages;
     }
 
-    function chargerOperations() {
-        if (!compteCourant || !operationsContenu) return;
+    function rangeeOperation(ligne) {
+        var rangee = document.createElement('tr');
 
-        C.appeler('/operations?taille=' + TAILLE_PAGE + '&page=' + pageOperations)
+        var identite = document.createElement('td');
+        var groupe = document.createElement('span');
+        groupe.className = 'cellule-identite';
+        groupe.appendChild(C.logoCrypto(ligne.id_crypto, 24));
+        var symbole = document.createElement('span');
+        symbole.className = 'cellule-nom';
+        symbole.textContent = ligne.id_crypto;
+        groupe.appendChild(symbole);
+        identite.appendChild(groupe);
+        rangee.appendChild(identite);
+
+        rangee.appendChild(cellule(C.formaterDateHeure(ligne.horodatage)));
+
+        var type = document.createElement('td');
+        type.appendChild(C.etiquetteType(ligne.type));
+        rangee.appendChild(type);
+
+        rangee.appendChild(cellule(C.formaterQuantite(ligne.quantite), 'cellule-nombre'));
+        rangee.appendChild(cellule(texteMontant(ligne.montant, 'EUR'), classeMontant(ligne.montant)));
+
+        return rangee;
+    }
+
+    function majTotalOperations(total) {
+        if (!operationsTotal) return;
+        operationsTotal.textContent = total;
+        operationsTotal.hidden = false;
+    }
+
+    function ajouterOperations(donnees) {
+        // Premiere tranche : le tableau est refait. Les suivantes s'y ajoutent.
+        if (donnees.page === 1) {
+            if (!donnees.lignes.length) {
+                return messageOperations(
+                    'Aucune opération enregistrée. Utilisez le bouton + pour en ajouter une.'
+                );
+            }
+            construireTableau();
+        }
+        if (!corpsOperations) return;
+
+        donnees.lignes.forEach(function (ligne) {
+            corpsOperations.appendChild(rangeeOperation(ligne));
+        });
+    }
+
+    // suivante : la tranche qui suit la derniere chargee. Sinon on repart de la
+    // premiere, ce qui reconstruit la liste.
+    function chargerOperations(suivante) {
+        if (!compteCourant || !operationsContenu) return;
+        if (chargementOperations) return;
+        if (suivante && pageOperations >= pagesOperations) return;
+
+        var page = suivante ? pageOperations + 1 : 1;
+        chargementOperations = true;
+        if (page > 1) etatOperations('Chargement…');
+
+        C.appeler('/operations?taille=' + TAILLE_PAGE + '&page=' + page)
             .then(function (donnees) {
                 pageOperations = donnees.page;
-                rendreOperations(donnees);
+                pagesOperations = donnees.pages;
+                majTotalOperations(donnees.total);
+                ajouterOperations(donnees);
+                etatOperations('');
             })
             .catch(function (erreur) {
-                messageOperations('Opérations indisponibles : ' + erreur.message);
+                if (page === 1) messageOperations('Opérations indisponibles : ' + erreur.message);
+                else etatOperations('Suite indisponible : ' + erreur.message);
+            })
+            .finally(function () {
+                chargementOperations = false;
+                suiteSiVisible();
             });
     }
 
-    if (operationsPrecedent) {
-        operationsPrecedent.addEventListener('click', function () {
-            if (pageOperations > 1) { pageOperations -= 1; chargerOperations(); }
-        });
+    // Une tranche de vingt lignes ne remplit pas forcement l'ecran : sans cette
+    // relance, la sentinelle resterait visible sans jamais repasser par une
+    // entree dans le champ, et le chargement s'arreterait la.
+    function suiteSiVisible() {
+        if (!operationsSentinelle || chargementOperations) return;
+        if (pageOperations >= pagesOperations) return;
+        if (operationsSentinelle.getBoundingClientRect().top <= window.innerHeight) {
+            chargerOperations(true);
+        }
     }
-    if (operationsSuivant) {
-        operationsSuivant.addEventListener('click', function () {
-            pageOperations += 1;
-            chargerOperations();
-        });
+
+    if (operationsSentinelle && typeof IntersectionObserver === 'function') {
+        // La marge fait partir la demande avant que le bas ne soit atteint :
+        // la suite est deja la quand on y arrive.
+        new IntersectionObserver(function (entrees) {
+            entrees.forEach(function (entree) {
+                if (entree.isIntersecting) chargerOperations(true);
+            });
+        }, { rootMargin: '300px' }).observe(operationsSentinelle);
+    } else if (operationsSentinelle) {
+        // Repli pour un navigateur sans IntersectionObserver
+        window.addEventListener('scroll', suiteSiVisible, { passive: true });
+        window.addEventListener('resize', suiteSiVisible);
     }
     if (boutonAjout) {
         boutonAjout.addEventListener('click', function () {
             window.Operation.ouvrir({
                 surEnregistrement: function () {
-                    pageOperations = 1;
                     chargerOperations();
                     chargerDetentions();
+                    // Une vente change les plus-values de son annee, et le
+                    // cumul des fractions imputees pour toutes les suivantes.
+                    chargerPlusValues();
                 },
             });
         });
@@ -245,8 +483,10 @@
             bienvenue.textContent = 'Bonjour ' + compte.prenom + ', votre espace est prêt.';
             accrocheActions.appendChild(bienvenue);
             espaceConnecte.hidden = false;
+            anneePlusValues = ANNEE_COURANTE;
             chargerDetentions();
             chargerOperations();
+            chargerPlusValues();
             return;
         }
 

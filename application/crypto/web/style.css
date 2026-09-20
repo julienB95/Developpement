@@ -572,6 +572,10 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
     stroke-linejoin: round;
 }
 
+/* Variante réduite, pour un bouton posé à l'intérieur d'une vignette */
+.fleche-mini { width: 26px; height: 26px; }
+.fleche-mini svg { width: 15px; height: 15px; }
+
 .piste {
     display: flex;
     gap: 14px;
@@ -589,21 +593,33 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
 
 .piste-vide { margin: 0; padding: 14px 0; color: var(--encre-douce); }
 
-/* La carte est un bouton : elle ouvre le graphique du cours sur 24 h */
+/* La vignette porte deux boutons : ouvrir le graphique du cours sur 24 h,
+   et rafraîchir le cours sans attendre le relevé automatique */
 .carte-cours {
+    position: relative;
+    width: 196px;
+    background: var(--fond-carte);
+    border: 1px solid var(--bordure);
+    border-radius: var(--rayon);
+}
+.carte-cours:hover { border-color: var(--accent); }
+
+.carte-cours-ouvrir {
     display: block;
-    width: 182px;
+    width: 100%;
     padding: 14px 16px;
     font: inherit;
     color: inherit;
     text-align: left;
-    background: var(--fond-carte);
-    border: 1px solid var(--bordure);
+    background: none;
+    border: 0;
     border-radius: var(--rayon);
     cursor: pointer;
 }
-.carte-cours:hover { border-color: var(--accent); }
-.carte-cours:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.carte-cours-ouvrir:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Posé dans le coin, à hauteur du prix, qui lui réserve sa place */
+.carte-rafraichir { position: absolute; right: 10px; bottom: 11px; }
 
 .carte-cours-haut {
     display: flex;
@@ -614,7 +630,7 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
 
 .carte-symbole { font-weight: 700; letter-spacing: 0.03em; }
 .carte-nom { display: block; margin: 2px 0 8px; font-size: 13px; color: var(--encre-douce); }
-.carte-prix { display: block; font-size: 19px; font-weight: 600; }
+.carte-prix { display: block; padding-right: 30px; font-size: 19px; font-weight: 600; }
 
 .carte-actu {
     display: flex;
@@ -696,9 +712,16 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
     align-items: start;
 }
 
-.panneau {
+/* La colonne de gauche empile ses panneaux et les suit au défilement.
+   C'est elle qui colle, pas chaque panneau : sinon ils se chevaucheraient. */
+.colonne-laterale {
     position: sticky;
     top: 24px;
+    display: grid;
+    gap: 24px;
+}
+
+.panneau {
     padding: 20px;
     background: var(--fond-carte);
     border: 1px solid var(--bordure);
@@ -766,6 +789,78 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
 
 .detention-vide { padding: 6px 0; color: var(--encre-douce); font-size: 14px; }
 
+/* --- Plus-values de cession ---------------------------------------------- */
+
+.annee-barre {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.annee-courante { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.pv-total {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    margin-bottom: 4px;
+    background: var(--fond);
+    border-radius: var(--rayon);
+}
+.pv-total-libelle { font-size: 13px; color: var(--encre-douce); }
+.pv-total-montant { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.liste-pv { list-style: none; margin: 0; padding: 0; }
+
+.pv-ligne {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--bordure);
+}
+.pv-ligne:last-child { border-bottom: 0; }
+
+.pv-texte { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+
+.pv-libelle {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pv-detail { font-size: 12px; color: var(--encre-douce); }
+
+.pv-montant {
+    margin-left: auto;
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.pv-gain { color: #2f9e6b; }
+.pv-perte { color: #d0574f; }
+
+/* Une réserve ne masque pas le chiffre : elle dit de s'en méfier */
+.pv-reserve {
+    margin: 10px 0 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--alerte);
+}
+
+.pv-vide { padding: 6px 0; margin: 0; color: var(--encre-douce); font-size: 14px; }
+
+/* La convention retenue pour le staking, sous le chiffre qu'elle détermine */
+.pv-convention { margin-top: 10px; }
+.pv-convention a { color: var(--accent); }
+
 /* --- Tableau des opérations ---------------------------------------------- */
 
 .tableau-operations { min-width: 560px; }
@@ -790,9 +885,136 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
 }
 .etiquette-achat { background: var(--accent-clair); color: var(--accent-fonce); }
 .etiquette-vente { background: #fdeeed; color: var(--alerte); }
-
+/* Le staking fait entrer de la crypto sans contrepartie en argent : ni la
+   couleur d'un achat, ni celle d'une vente */
+.etiquette-staking { background: #ecebfa; color: #4b41a8; }
+
 .montant-entree { color: #1f7a4d; font-weight: 600; }
 .montant-sortie { color: var(--encre); font-weight: 600; }
+
+/* --- Compteur et défilement infini --------------------------------------- */
+
+/* Collé au titre du bloc, qui est déjà une ligne flex */
+.compteur {
+    padding: 2px 10px;
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    background: var(--accent-clair);
+    border-radius: 999px;
+}
+
+/* Invisible, mais jamais en display:none : sans surface, elle n'entrerait
+   jamais dans le champ de l'observateur qui déclenche la suite */
+.sentinelle { height: 1px; }
+
+.etat-suite { margin: 12px 0 0; text-align: center; }
+
+/* --- Titre portant un compteur et une action ----------------------------- */
+
+.titre-compte {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+.titre-compte .compteur { font-size: 15px; }
+
+/* Poussée à droite du titre, pour ne pas se confondre avec le texte */
+.fleche-action { margin-left: auto; text-decoration: none; }
+
+/* --- Importation : les deux portes --------------------------------------- */
+
+.choix-importation {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 20px;
+}
+
+.carte-choix {
+    display: grid;
+    justify-items: start;
+    gap: 10px;
+    padding: 24px;
+    color: inherit;
+    text-decoration: none;
+    background: var(--fond-carte);
+    border: 1px solid var(--bordure);
+    border-radius: var(--rayon);
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.carte-choix:hover {
+    border-color: var(--accent);
+    box-shadow: 0 2px 10px rgba(22, 32, 44, 0.08);
+}
+.carte-choix:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.carte-choix-titre { font-size: 19px; font-weight: 600; }
+.carte-choix-aide { font-size: 14px; color: var(--encre-douce); }
+
+/* --- Importation : le modèle --------------------------------------------- */
+
+.tableau-colonnes { min-width: 640px; }
+.tableau-colonnes code {
+    padding: 2px 6px;
+    font-size: 13px;
+    background: var(--fond);
+    border-radius: 6px;
+}
+
+.colonne-alias { display: block; margin-top: 2px; font-size: 12px; color: var(--encre-douce); }
+
+/* Colonnes d'un fichier d'import : requise ou facultative */
+.etiquette-requis { background: #fdeeed; color: var(--alerte); }
+.etiquette-libre { background: var(--fond); color: var(--encre-douce); }
+
+/* --- Importation : le fichier et son rapport ----------------------------- */
+
+/* Le fichier en haut, le traitement juste à côté : la barre reste lisible
+   même quand le nom du fichier est long */
+.barre-import {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+.champ-fichier { flex: 1 1 320px; min-width: 0; }
+.champ-fichier input { max-width: 100%; }
+
+.rapport-chiffres { display: flex; flex-wrap: wrap; gap: 24px; margin: 14px 0 18px; }
+
+.rapport-chiffre { display: flex; align-items: baseline; gap: 8px; }
+
+.rapport-nombre {
+    font-size: 22px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.rapport-ok { color: #1f7a4d; }
+.rapport-attente { color: #8a6d1f; }
+.rapport-ko { color: var(--alerte); }
+
+.rapport-libelle { font-size: 14px; color: var(--encre-douce); }
+
+.tableau-rapport { min-width: 720px; }
+.tableau-rapport td { vertical-align: top; }
+
+.etiquette-importee { background: var(--accent-clair); color: var(--accent-fonce); }
+.etiquette-doublon { background: #fdf3dc; color: #8a6d1f; }
+.etiquette-rejetee { background: #fdeeed; color: var(--alerte); }
+
+.observation-erreur { color: var(--alerte); }
+
+/* Le contenu fautif est repris tel quel : c'est lui qu'il faut retrouver
+   dans le tableur pour corriger la ligne */
+.erreur-contenu {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    color: var(--encre-douce);
+    overflow-wrap: anywhere;
+}
 
 /* --- Pagination ---------------------------------------------------------- */
 
@@ -893,7 +1115,7 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
 
 @media (max-width: 780px) {
     .disposition { grid-template-columns: 1fr; }
-    .panneau { position: static; }
+    .colonne-laterale { position: static; }
     .filtres > .champ-filtre { flex: 1 1 140px; min-width: 0; }
 }
 
@@ -1168,7 +1390,7 @@ body.page-large main { max-width: 1720px; }
 
 .grille-cours-popup {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(186px, 1fr));
     gap: 12px;
     overflow-y: auto;
     padding: 2px;
@@ -1212,6 +1434,7 @@ body.page-large main { max-width: 1720px; }
     margin-bottom: 8px;
 }
 .graphique-prix { margin-left: auto; font-size: 20px; font-weight: 600; }
+.graphique-rafraichir { flex: 0 0 auto; }
 
 /* Sous cette largeur, le tracé défile plutôt que de rendre l'échelle illisible */
 .graphique-zone { flex: 0 0 auto; margin: 16px 0 10px; overflow-x: auto; }

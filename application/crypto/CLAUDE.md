@@ -71,6 +71,15 @@ pour tout ce qui se trouve dans `application/crypto/`.
 - La désactivation d'un compte ferme immédiatement toutes ses sessions
 - Le premier administrateur est désigné en ligne de commande : `npm run crypto:admin -- <courriel>`
 
+## Sauvegardes
+
+- Une sauvegarde est un dossier horodaté placé hors du dépôt, sous `SAUVEGARDE_CHEMIN`
+  (par défaut le dossier `Sauvegarde` à côté du dépôt) : `source/`, `bdd/`, `sauvegarde.zip`
+- `bdd/donnees.sql` est engendré par requêtes, sans `pg_dump` : le conteneur n'a pas le client PostgreSQL
+- Les identifiants SQL sont échappés par `format('%I')` côté serveur, jamais concaténés à la main
+- Aucun secret dans une sauvegarde : le `.env` n'est jamais copié, puisque l'archive part par courriel
+- Un courriel qui échoue ne remet pas la sauvegarde en cause : l'échec est consigné dans le manifeste
+
 ## Sources externes
 
 - Cours : CoinGecko, offre gratuite, sans clé d'API — module `api/marche.js`

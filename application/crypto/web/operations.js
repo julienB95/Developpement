@@ -16,10 +16,11 @@
     var suivant = document.getElementById('operations-suivant');
     var boutonAjout = document.getElementById('bouton-ajout-operation');
     var resumeFiltres = document.getElementById('resume-filtres');
+    var operationsTotal = document.getElementById('operations-total');
 
     var filtreAnnee = document.getElementById('filtre-annee');
     var filtreCrypto = document.getElementById('filtre-crypto');
-    var filtreSens = document.getElementById('filtre-sens');
+    var filtreType = document.getElementById('filtre-type');
     var reinitialiser = document.getElementById('filtre-reinitialiser');
 
     var page = 1;
@@ -64,12 +65,24 @@
         pagination.hidden = true;
     }
 
+    // Total du compte, filtres exclus : le resume sous les filtres donne deja
+    // le nombre filtre, celui du titre doit rester le total.
+    function chargerTotal() {
+        return C.appeler('/operations?taille=1&page=1')
+            .then(function (donnees) {
+                if (!operationsTotal) return;
+                operationsTotal.textContent = donnees.total;
+                operationsTotal.hidden = false;
+            })
+            .catch(function () { /* le titre reste sans compteur */ });
+    }
+
     // --- Filtres ----------------------------------------------------------
     function requeteFiltres() {
         var parties = ['taille=' + TAILLE_PAGE, 'page=' + page];
         if (filtreAnnee.value) parties.push('annee=' + encodeURIComponent(filtreAnnee.value));
         if (filtreCrypto.value) parties.push('crypto=' + encodeURIComponent(filtreCrypto.value));
-        if (filtreSens.value) parties.push('sens=' + encodeURIComponent(filtreSens.value));
+        if (filtreType.value) parties.push('type=' + encodeURIComponent(filtreType.value));
         return parties.join('&');
     }
 
@@ -116,7 +129,7 @@
         var colonnes = [
             { titre: 'Crypto' },
             { titre: 'Date' },
-            { titre: 'Sens' },
+            { titre: 'Type' },
             { titre: 'Quantité', nombre: true },
             { titre: 'Prix unitaire', nombre: true },
             { titre: 'Frais', nombre: true },
@@ -152,12 +165,9 @@
 
             rangee.appendChild(cellule(C.formaterDateHeure(ligne.horodatage)));
 
-            var sens = document.createElement('td');
-            var etiquette = document.createElement('span');
-            etiquette.className = 'etiquette-sens etiquette-' + ligne.sens;
-            etiquette.textContent = ligne.sens === 'achat' ? 'Achat' : 'Vente';
-            sens.appendChild(etiquette);
-            rangee.appendChild(sens);
+            var type = document.createElement('td');
+            type.appendChild(C.etiquetteType(ligne.type));
+            rangee.appendChild(type);
 
             rangee.appendChild(cellule(C.formaterQuantite(ligne.quantite), 'cellule-nombre'));
             rangee.appendChild(cellule(
@@ -206,18 +216,19 @@
 
     // Après une écriture, les millésimes disponibles ont pu changer
     function recharger() {
+        chargerTotal();
         chargerFiltres().then(charger);
     }
 
     // --- Branchements -----------------------------------------------------
-    [filtreAnnee, filtreCrypto, filtreSens].forEach(function (filtre) {
+    [filtreAnnee, filtreCrypto, filtreType].forEach(function (filtre) {
         filtre.addEventListener('change', function () { page = 1; charger(); });
     });
 
     reinitialiser.addEventListener('click', function () {
         filtreAnnee.value = '';
         filtreCrypto.value = '';
-        filtreSens.value = '';
+        filtreType.value = '';
         page = 1;
         charger();
     });
@@ -247,6 +258,7 @@
                 if (window.Marche) window.Marche.appliquer(true);
 
                 zoneOperations.hidden = false;
+                chargerTotal();
                 return chargerFiltres().then(charger);
             })
             .catch(function (erreur) {

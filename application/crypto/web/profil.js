@@ -1,4 +1,5 @@
-// Page de profil : prénom, nom, adresse de courriel et devise d'affichage.
+// Page de profil : identité, devise d'affichage, valeurs reprises à la saisie,
+// et la convention fiscale retenue pour les récompenses de staking.
 (function () {
     'use strict';
 
@@ -19,6 +20,7 @@
         devise: document.getElementById('devise'),
         plateforme_defaut: document.getElementById('plateforme_defaut'),
         frais_defaut: document.getElementById('frais_defaut'),
+        staking_acquisition: document.getElementById('staking_acquisition'),
     };
 
     // Retire les zeros de fin sans passer par un flottant
@@ -67,6 +69,7 @@
         champs.devise.value = compte.devise || 'EUR';
         champs.plateforme_defaut.value = compte.plateforme_defaut || '';
         champs.frais_defaut.value = versChampDecimal(compte.frais_defaut);
+        champs.staking_acquisition.value = compte.staking_acquisition || 'nulle';
 
         accesGoogle.textContent = compte.autorise_google
             ? 'La connexion par Google est autorisée sur ce compte.'
@@ -86,6 +89,7 @@
             devise: champs.devise.value,
             plateforme_defaut: champs.plateforme_defaut.value || null,
             frais_defaut: champs.frais_defaut.value.trim().replace(',', '.') || null,
+            staking_acquisition: champs.staking_acquisition.value,
         };
 
         if (!corps.prenom || !corps.nom) return afficherErreur('Renseignez votre prénom et votre nom.');

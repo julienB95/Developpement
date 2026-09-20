@@ -106,6 +106,21 @@
                 <input type="text" id="frais_defaut" name="frais_defaut" inputmode="decimal">
                 <p class="aide">Repris d'office à la création d'une opération, modifiable au cas par cas.</p>
             </div>
+
+            <div class="champ">
+                <label for="staking_acquisition">Staking : prix d'acquisition retenu</label>
+                <select id="staking_acquisition" name="staking_acquisition">
+                    <option value="nulle">Nul — la récompense n'a rien coûté</option>
+                    <option value="valeur_recue">Sa valeur à la réception</option>
+                </select>
+                <p class="aide">
+                    Ce choix change le montant de vos plus-values. Retenez la valeur à la
+                    réception si vous avez déclaré ces récompenses en revenu l'année où vous
+                    les avez reçues : leur prix d'acquisition évite alors une double
+                    imposition. Sinon laissez « nul », l'option prudente. En cas de doute,
+                    demandez à votre conseil.
+                </p>
+            </div>
             <button type="submit" class="bouton bouton-principal" id="bouton-valider">Enregistrer</button>
         </form>
 

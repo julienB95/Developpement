@@ -15,7 +15,15 @@
     var referentiel = null;
     var operationCourante = null;
     var surEnregistrement = null;
-    var sensCourant = 'achat';
+    var typeCourant = 'achat';
+
+    // Ce que le type change au-delà de son libellé, dit à la saisie
+    var NOTES = {
+        vente: "À l'enregistrement d'une vente, la valeur moyenne du jour de toutes vos "
+            + 'cryptos est relevée et conservée pour la déclaration.',
+        staking: 'Une récompense de staking entre au portefeuille comme un achat, mais '
+            + "sans frais et sans prix d'acquisition : elle n'a rien coûté.",
+    };
 
     // --- Construction du formulaire ---------------------------------------
     function etoile() {
@@ -116,18 +124,18 @@
         forme.className = 'formulaire';
         forme.noValidate = true;
 
-        // Sens : deux onglets, comme le dialogue de connexion
+        // Type : un onglet par type d'opération, comme le dialogue de connexion
         var onglets = document.createElement('div');
         onglets.className = 'onglets';
         onglets.setAttribute('role', 'tablist');
 
-        ['achat', 'vente'].forEach(function (sens) {
+        C.typesOperation().forEach(function (type) {
             var bouton = document.createElement('button');
             bouton.type = 'button';
             bouton.className = 'onglet';
-            bouton.textContent = sens === 'achat' ? 'Achat' : 'Vente';
-            bouton.addEventListener('click', function () { choisirSens(sens); });
-            champs['onglet_' + sens] = bouton;
+            bouton.textContent = type.libelle;
+            bouton.addEventListener('click', function () { choisirType(type.valeur); });
+            champs['onglet_' + type.valeur] = bouton;
             onglets.appendChild(bouton);
         });
         forme.appendChild(onglets);
@@ -150,8 +158,6 @@
         var note = document.createElement('p');
         note.className = 'aide note-vente';
         note.hidden = true;
-        note.textContent = "À l'enregistrement d'une vente, la valeur moyenne du jour "
-            + 'de toutes vos cryptos est relevée et conservée pour la déclaration.';
         forme.appendChild(note);
         champs.note = note;
 
@@ -203,11 +209,24 @@
         });
     }
 
-    function choisirSens(sens) {
-        sensCourant = sens;
-        champs.onglet_achat.classList.toggle('actif', sens === 'achat');
-        champs.onglet_vente.classList.toggle('actif', sens === 'vente');
-        champs.note.hidden = sens !== 'vente';
+    // Le staking fait entrer de la crypto sans contrepartie en argent : des
+    // frais dessus ne veulent rien dire, et la base les refuse. Le champ est
+    // donc bloqué à zéro plutôt que laissé à une saisie vouée à l'échec.
+    function choisirType(type) {
+        typeCourant = type;
+
+        C.typesOperation().forEach(function (candidat) {
+            champs['onglet_' + candidat.valeur].classList.toggle('actif', candidat.valeur === type);
+        });
+
+        var staking = type === 'staking';
+        if (staking) champs.frais.value = '0';
+        champs.frais.disabled = staking;
+
+        champs.note.textContent = NOTES[type] || '';
+        champs.note.hidden = !NOTES[type];
+
+        verifierObligatoires();
     }
 
     // --- Referentiel ------------------------------------------------------
@@ -300,7 +319,6 @@
             champs.supprimer.hidden = !modification;
 
             remplirChoix(!modification);
-            choisirSens(modification ? operationCourante.sens : 'achat');
 
             champs.id_crypto.value = modification ? operationCourante.id_crypto : '';
             champs.horodatage.value = versChampLocal(modification ? operationCourante.horodatage : null);
@@ -315,7 +333,9 @@
                 ? (operationCourante.plateforme || '')
                 : (compte.plateforme_defaut || '');
 
-            verifierObligatoires();
+            // Après le remplissage : sur un staking, le type remet les frais à
+            // zéro, ce que la valeur par défaut du compte écraserait sinon.
+            choisirType(modification ? operationCourante.type : 'achat');
 
             if (typeof dialogue.showModal === 'function') dialogue.showModal();
             else dialogue.setAttribute('open', '');
@@ -350,7 +370,7 @@
         }
 
         var corps = {
-            sens: sensCourant,
+            type: typeCourant,
             id_crypto: champs.id_crypto.value,
             quantite: quantite,
             prix_unitaire: prix,
@@ -360,7 +380,7 @@
         };
 
         champs.valider.disabled = true;
-        champs.valider.textContent = sensCourant === 'vente' ? 'Relevé des valeurs…' : 'Enregistrement…';
+        champs.valider.textContent = typeCourant === 'vente' ? 'Relevé des valeurs…' : 'Enregistrement…';
 
         var chemin = operationCourante ? '/operations/' + operationCourante.id : '/operations';
         var methode = operationCourante ? 'PUT' : 'POST';

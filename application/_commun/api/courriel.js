@@ -6,8 +6,12 @@
 //   SMTP_UTILISATEUR  identifiant du compte d'envoi
 //   SMTP_MOTDEPASSE   mot de passe d'application, jamais le mot de passe du compte
 //   SMTP_EXPEDITEUR   adresse affichée en expéditeur (défaut : SMTP_UTILISATEUR)
+//
+// envoyer({ destinataire, sujet, texte, pieces }) : pieces est facultatif,
+// chaque entrée portant { nom, type, contenu }, le contenu étant un Buffer.
 const net = require('net');
 const tls = require('tls');
+const crypto = require('crypto');
 
 const DELAI = 15000;
 
@@ -128,8 +132,71 @@ function encoderSujet(sujet) {
 
 // Le corps part en base64 : plus de problème de longueur de ligne, ni de point
 // en début de ligne, qui terminerait le message avant l'heure.
-function corpsEncode(texte) {
-    return base64(texte).replace(/(.{76})/g, '$1\r\n');
+function corpsEncode(contenu) {
+    const brut = Buffer.isBuffer(contenu) ? contenu : Buffer.from(String(contenu), 'utf-8');
+    return brut.toString('base64').replace(/(.{76})/g, '$1\r\n');
+}
+
+// Un nom de fichier non ASCII passe par la forme RFC 5987, comprise des clients
+// courants ; la forme simplifiée reste là pour les plus anciens.
+function enteteNom(nom) {
+    const simplifie = nom.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+    if (simplifie === nom) return `filename="${simplifie}"`;
+    return `filename="${simplifie}"; filename*=UTF-8''${encodeURIComponent(nom)}`;
+}
+
+// Sans pièce jointe, le message reste un simple text/plain : la forme multipart
+// n'apparaît que lorsqu'il y a quelque chose à joindre.
+function composer(reglages, message) {
+    const communs = [
+        `From: ${reglages.expediteur}`,
+        `To: ${message.destinataire}`,
+        `Subject: ${encoderSujet(message.sujet)}`,
+        `Date: ${new Date().toUTCString()}`,
+        'MIME-Version: 1.0',
+    ];
+
+    const pieces = message.pieces || [];
+    if (!pieces.length) {
+        const entetes = communs.concat([
+            'Content-Type: text/plain; charset=utf-8',
+            'Content-Transfer-Encoding: base64',
+        ]);
+        return `${entetes.join('\r\n')}\r\n\r\n${corpsEncode(message.texte)}`;
+    }
+
+    // La frontière sépare les parties : tirée au hasard, elle ne peut pas
+    // apparaître dans le base64 qu'elle encadre.
+    const frontiere = `_${crypto.randomBytes(16).toString('hex')}_`;
+    const entetes = communs.concat([`Content-Type: multipart/mixed; boundary="${frontiere}"`]);
+
+    const parties = [[
+        'Content-Type: text/plain; charset=utf-8',
+        'Content-Transfer-Encoding: base64',
+        '',
+        corpsEncode(message.texte),
+    ].join('\r\n')];
+
+    for (const piece of pieces) {
+        parties.push([
+            `Content-Type: ${piece.type || 'application/octet-stream'}`,
+            'Content-Transfer-Encoding: base64',
+            `Content-Disposition: attachment; ${enteteNom(piece.nom)}`,
+            '',
+            corpsEncode(piece.contenu),
+        ].join('\r\n'));
+    }
+
+    const corps = parties.map((partie) => `--${frontiere}\r\n${partie}`).join('\r\n')
+        + `\r\n--${frontiere}--`;
+
+    return `${entetes.join('\r\n')}\r\n\r\n${corps}`;
+}
+
+// Une ligne réduite à un point termine le message : toute ligne commençant
+// par un point est doublée avant l'envoi.
+function protegerPoints(donnees) {
+    return donnees.replace(/^\./gm, '..');
 }
 
 async function remettre(canal, reglages, message) {
@@ -148,17 +215,7 @@ async function remettre(canal, reglages, message) {
     canal.ecrire('DATA');
     await attendre(canal, [354]);
 
-    const entetes = [
-        `From: ${reglages.expediteur}`,
-        `To: ${message.destinataire}`,
-        `Subject: ${encoderSujet(message.sujet)}`,
-        `Date: ${new Date().toUTCString()}`,
-        'MIME-Version: 1.0',
-        'Content-Type: text/plain; charset=utf-8',
-        'Content-Transfer-Encoding: base64',
-    ].join('\r\n');
-
-    canal.ecrire(`${entetes}\r\n\r\n${corpsEncode(message.texte)}\r\n.`);
+    canal.ecrire(`${protegerPoints(composer(reglages, message))}\r\n.`);
     await attendre(canal, [250]);
 
     canal.ecrire('QUIT');

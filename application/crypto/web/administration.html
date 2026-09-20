@@ -70,6 +70,7 @@
         <button type="button" class="onglet" role="tab" aria-selected="false" data-section="cryptos">Cryptos</button>
         <button type="button" class="onglet" role="tab" aria-selected="false" data-section="plateformes">Plateformes</button>
         <button type="button" class="onglet" role="tab" aria-selected="false" data-section="valeurs">Valeurs</button>
+        <button type="button" class="onglet" role="tab" aria-selected="false" data-section="sauvegardes">Sauvegarde</button>
     </div>
 
     <p class="erreur" id="erreur-page" role="alert" hidden></p>
@@ -215,6 +216,44 @@
                 <tbody id="corps-valeurs"></tbody>
             </table>
         </div>
+    </section>
+
+    <section class="espace" id="section-sauvegardes" hidden>
+        <h2>Sauvegardes</h2>
+        <p class="aide">
+            Chaque sauvegarde réunit les sources du site et le contenu de la base dans un
+            dossier horodaté, hors du dépôt. L'archive complète part ensuite par courriel.
+            Le fichier .env, l'historique Git et les dépendances n'y figurent pas.
+        </p>
+
+        <div class="encadre-releve">
+            <p class="encadre-titre">Nouvelle sauvegarde</p>
+            <div class="filtres">
+                <button type="button" class="bouton bouton-principal" id="bouton-sauvegarder">
+                    Sauvegarder maintenant
+                </button>
+            </div>
+            <p class="aide" id="resultat-sauvegarde" hidden></p>
+        </div>
+
+        <p class="espace-vide" id="chargement-sauvegardes">Chargement…</p>
+
+        <div class="tableau-defilant">
+            <table class="tableau" id="tableau-sauvegardes" hidden>
+                <thead>
+                    <tr>
+                        <th scope="col">Sauvegarde</th>
+                        <th scope="col">Sources</th>
+                        <th scope="col">Base</th>
+                        <th scope="col" class="cellule-nombre">Archive</th>
+                        <th scope="col">Courriel</th>
+                    </tr>
+                </thead>
+                <tbody id="corps-sauvegardes"></tbody>
+            </table>
+        </div>
+
+        <p class="aide" id="racine-sauvegardes" hidden></p>
     </section>
 </main>
 

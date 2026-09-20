@@ -142,6 +142,9 @@ async function cours(deviseDemandee, forcer) {
 // minutes : un cache de meme duree ne fait perdre aucun point du trace.
 const URL_COINS = 'https://api.coingecko.com/api/v3/coins';
 const DUREE_CACHE_HISTORIQUE = 5 * 60 * 1000;
+// Rafraichissement demande depuis le graphique : comme pour les cours, le cache
+// est raccourci sans etre supprime, ce qui protege la source d'un clic en rafale.
+const DUREE_CACHE_HISTORIQUE_FORCE = 30 * 1000;
 const JOUR_MS = 24 * 60 * 60 * 1000;
 
 const cacheHistorique = new Map();
@@ -152,7 +155,7 @@ function erreurMarche(message, code) {
     return err;
 }
 
-async function historique(identifiantDemande, deviseDemandee) {
+async function historique(identifiantDemande, deviseDemandee, forcer) {
     const devise = DEVISES_ACCEPTEES.includes(String(deviseDemandee || '').toLowerCase())
         ? String(deviseDemandee).toLowerCase()
         : 'eur';
@@ -169,7 +172,8 @@ async function historique(identifiantDemande, deviseDemandee) {
 
     const cle = `${actif}:${devise}`;
     const enCache = cacheHistorique.get(cle);
-    if (enCache && Date.now() - enCache.horodatage < DUREE_CACHE_HISTORIQUE) {
+    const duree = forcer ? DUREE_CACHE_HISTORIQUE_FORCE : DUREE_CACHE_HISTORIQUE;
+    if (enCache && Date.now() - enCache.horodatage < duree) {
         return { ...enCache.donnees, provenance: 'cache' };
     }
 
