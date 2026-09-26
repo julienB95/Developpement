@@ -22,9 +22,11 @@
 
     // --- Cryptos detenues -------------------------------------------------
     var listeDetentions = document.getElementById('liste-detentions');
+    var detentionsReleve = document.getElementById('detentions-releve');
 
     function messageDetentions(texte) {
         C.vider(listeDetentions);
+        if (detentionsReleve) detentionsReleve.hidden = true;
         var item = document.createElement('li');
         item.className = 'detention-vide';
         item.textContent = texte;
@@ -56,15 +58,40 @@
             texte.appendChild(libelle);
             texte.appendChild(symbole);
 
+            // Quantité, cours unitaire, puis valeur de la ligne en euro
+            var chiffres = document.createElement('span');
+            chiffres.className = 'detention-chiffres';
+
             var quantite = document.createElement('span');
             quantite.className = 'detention-quantite';
-            quantite.textContent = C.formaterQuantite(ligne.quantite);
+            quantite.textContent = C.formaterQuantite(ligne.quantite) + ' ' + ligne.id_crypto;
+
+            var prix = document.createElement('span');
+            prix.className = 'detention-prix';
+            prix.textContent = ligne.prix === null
+                ? 'Cours indisponible'
+                : C.formaterMontant(ligne.prix, 'EUR') + ' / ' + ligne.id_crypto;
+
+            var total = document.createElement('span');
+            total.className = 'detention-total';
+            total.textContent = ligne.total === null ? '—' : C.formaterMontant(ligne.total, 'EUR');
+
+            chiffres.appendChild(quantite);
+            chiffres.appendChild(prix);
+            chiffres.appendChild(total);
 
             item.appendChild(C.logoCrypto(ligne.id_crypto));
             item.appendChild(texte);
-            item.appendChild(quantite);
+            item.appendChild(chiffres);
             listeDetentions.appendChild(item);
         });
+
+        // Les cours sont volatils : leur source et leur heure sont toujours dites
+        if (!detentionsReleve) return;
+        detentionsReleve.textContent = donnees.releve_le
+            ? 'Cours ' + donnees.source + ' du ' + C.formaterDateHeure(donnees.releve_le)
+            : 'Cours indisponibles' + (donnees.cours_indisponible ? ' : ' + donnees.cours_indisponible : '');
+        detentionsReleve.hidden = false;
     }
 
     function chargerDetentions() {

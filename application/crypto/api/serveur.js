@@ -869,24 +869,60 @@ route('GET', '/api/crypto/cryptos/:id/logo', async ({ params }) => {
 // Cryptos encore detenues : quantite nette strictement positive, calculee sur
 // l'ensemble des operations. Restreindre au millesime en cours donnerait des
 // quantites negatives des qu'un achat anterieur sort du filtre.
+// Chaque ligne est valorisée au cours en euro du moment : le prix arrive de la
+// source en chaîne et le total est calculé en NUMERIC, jamais en flottant. Les
+// lignes sont triées par total décroissant ; une crypto sans cours finit la liste.
 route('GET', '/api/crypto/mon-portefeuille', async ({ req }) => {
     const utilisateur = await exigerConnexion(req);
 
+    // Sans cours, les quantités restent affichées : la réponse le signale
+    let marcheEur = null;
+    let coursIndisponible = null;
+    try {
+        marcheEur = await marche.cours('eur');
+    } catch (err) {
+        console.error('Cours indisponibles pour le portefeuille :', err.message);
+        coursIndisponible = err.message;
+    }
+    const cotees = (marcheEur ? marcheEur.actifs : []).filter((actif) => actif.prix !== null);
+
     const { rows } = await db.requete(
-        `SELECT o.id_crypto,
-                c.libelle,
-                SUM(CASE WHEN o.type = 'vente' THEN -o.quantite ELSE o.quantite END)::text AS quantite,
-                count(*)::int AS operations
-         FROM operation o
-         JOIN crypto c ON c.id = o.id_crypto
-         WHERE o.utilisateur_id = $1
-         GROUP BY o.id_crypto, c.libelle
-         HAVING SUM(CASE WHEN o.type = 'vente' THEN -o.quantite ELSE o.quantite END) > 0
-         ORDER BY c.libelle`,
-        [utilisateur.id]
+        `WITH detention AS (
+             SELECT o.id_crypto,
+                    c.libelle,
+                    SUM(CASE WHEN o.type = 'vente' THEN -o.quantite ELSE o.quantite END) AS quantite,
+                    count(*)::int AS operations
+             FROM operation o
+             JOIN crypto c ON c.id = o.id_crypto
+             WHERE o.utilisateur_id = $1
+             GROUP BY o.id_crypto, c.libelle
+             HAVING SUM(CASE WHEN o.type = 'vente' THEN -o.quantite ELSE o.quantite END) > 0
+         ),
+         cours AS (
+             SELECT * FROM unnest($2::text[], $3::numeric[]) AS t(id_crypto, prix)
+         )
+         SELECT d.id_crypto,
+                d.libelle,
+                d.quantite::text AS quantite,
+                d.operations,
+                k.prix::text AS prix,
+                (d.quantite * k.prix)::text AS total
+         FROM detention d
+         LEFT JOIN cours k ON k.id_crypto = d.id_crypto
+         ORDER BY d.quantite * k.prix DESC NULLS LAST, d.libelle`,
+        [utilisateur.id, cotees.map((actif) => actif.symbole), cotees.map((actif) => actif.prix)]
     );
 
-    return { code: 200, corps: { lignes: rows } };
+    return {
+        code: 200,
+        corps: {
+            lignes: rows,
+            devise: 'EUR',
+            source: marcheEur ? marcheEur.source : null,
+            releve_le: marcheEur ? marcheEur.releve_le : null,
+            cours_indisponible: coursIndisponible,
+        },
+    };
 });
 
 // --- Comptes et connexion --------------------------------------------------
