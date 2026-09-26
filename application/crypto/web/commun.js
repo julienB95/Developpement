@@ -131,6 +131,9 @@
             if (!options.masquerAdministration) {
                 menu.appendChild(lienMenu('/administration.html', 'Administration'));
             }
+            if (!options.masquerDeclaration) {
+                menu.appendChild(lienMenu('/declaration.html', 'Déclaration fiscale'));
+            }
         }
 
         var deconnexion = document.createElement('button');
@@ -245,6 +248,25 @@
             minimumFractionDigits: decimales,
             maximumFractionDigits: decimales,
         }).format(nombre);
+    }
+
+    // Montant fiscal, toujours en euro quelle que soit la devise d'affichage :
+    // au centime par défaut, ou arrondi à l'euro comme sur les formulaires.
+    // signe : le « + » d'un gain est écrit, le signe venant de la chaîne
+    // décimale — une perte minuscule arrondie à zéro doit rester une perte.
+    function formaterEuros(valeur, options) {
+        options = options || {};
+        var nombre = Number(valeur);
+        if (valeur === null || valeur === undefined || !isFinite(nombre)) return '—';
+        var decimales = options.arrondi ? 0 : 2;
+        var texte = new Intl.NumberFormat('fr-FR', {
+            style: 'currency',
+            currency: 'EUR',
+            minimumFractionDigits: decimales,
+            maximumFractionDigits: decimales,
+        }).format(nombre);
+        if (options.signe && String(valeur).charAt(0) !== '-') texte = '+' + texte;
+        return texte;
     }
 
     // Les quantites arrivent en chaine decimale : on les met en forme sans jamais
@@ -523,6 +545,7 @@
         symboleDevise: symboleDevise,
         definirDevise: definirDevise,
         formaterMontant: formaterMontant,
+        formaterEuros: formaterEuros,
         formaterQuantite: formaterQuantite,
         logoCrypto: logoCrypto,
         formaterDateHeure: formaterDateHeure,

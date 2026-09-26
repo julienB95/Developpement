@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Synthèse de la déclaration fiscale — Suivi crypto</title>
+    <link rel="icon" href="/image/logo.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="entete">
+    <a class="marque" href="/">
+        <span class="marque-signe" aria-hidden="true">₿</span>
+        <span class="marque-texte">Suivi crypto</span>
+    </a>
+
+    <div class="entete-droite">
+        <div class="encart-marche" id="encart-marche" hidden></div>
+
+        <!-- Devise d'affichage des montants : réglage du compte une fois connecté -->
+        <button type="button" class="devise" id="bouton-devise">
+            <span id="devise-symbole" aria-hidden="true">€</span>
+        </button>
+
+        <!-- Date du jour, heure de Paris et heure de New York -->
+        <div class="horloge" id="horloge">
+            <span class="horloge-jour" id="horloge-jour"></span>
+
+            <span class="horloge-heure" title="Heure de Paris">
+                <svg class="drapeau" viewBox="0 0 18 12" role="img" aria-label="France">
+                    <rect width="6" height="12" fill="#002654"></rect>
+                    <rect x="6" width="6" height="12" fill="#ffffff"></rect>
+                    <rect x="12" width="6" height="12" fill="#ed2939"></rect>
+                </svg>
+                <span id="horloge-paris">--:--:--</span>
+            </span>
+
+            <span class="horloge-heure" title="Heure de New York (côte est)">
+                <svg class="drapeau" viewBox="0 0 18 12" role="img" aria-label="États-Unis, côte est">
+                    <rect width="18" height="12" fill="#ffffff"></rect>
+                    <g fill="#b22234">
+                        <rect y="0" width="18" height="0.92"></rect>
+                        <rect y="1.85" width="18" height="0.92"></rect>
+                        <rect y="3.69" width="18" height="0.92"></rect>
+                        <rect y="5.54" width="18" height="0.92"></rect>
+                        <rect y="7.38" width="18" height="0.92"></rect>
+                        <rect y="9.23" width="18" height="0.92"></rect>
+                        <rect y="11.08" width="18" height="0.92"></rect>
+                    </g>
+                    <rect width="7.2" height="6.46" fill="#3c3b6e"></rect>
+                </svg>
+                <span id="horloge-newyork">--:--:--</span>
+            </span>
+        </div>
+
+        <nav class="compte" id="bloc-compte" aria-live="polite"></nav>
+    </div>
+</header>
+
+<main>
+    <nav class="fil" aria-label="Fil d'ariane">
+        <a href="/">Accueil</a> <span aria-hidden="true">›</span>
+        <a href="/declaration.html">Déclaration fiscale</a> <span aria-hidden="true">›</span>
+        <span id="fil-annee"></span>
+    </nav>
+
+    <h1 id="titre-page">Synthèse de la déclaration</h1>
+    <p class="aide decl-sous-titre" id="sous-titre"></p>
+
+    <p class="erreur" id="erreur-page" role="alert" hidden></p>
+
+    <div id="synthese" hidden>
+        <!-- Ce qui se reporte sur la déclaration de revenus -->
+        <section class="panneau decl-report" aria-labelledby="titre-report">
+            <h2 class="bloc-titre" id="titre-report">
+                <svg class="bloc-icone" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M6 3h9l3 3v15H6z"></path>
+                    <path d="M9 10h6M9 14h6M9 18h4"></path>
+                </svg>
+                À reporter sur la déclaration 2042-C
+            </h2>
+            <div id="report-contenu"></div>
+        </section>
+
+        <!-- Le formulaire 2086 : une colonne par cession sur le formulaire,
+             une ligne par cession ici -->
+        <section class="espace" aria-labelledby="titre-2086">
+            <div class="bloc-entete">
+                <h2 class="bloc-titre" id="titre-2086">
+                    <svg class="bloc-icone" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 6h16M4 12h16M4 18h10"></path>
+                    </svg>
+                    Formulaire 2086 — détail des cessions
+                    <span class="compteur" id="compteur-cessions" hidden></span>
+                </h2>
+            </div>
+
+            <p class="aide decl-note">
+                Sur le formulaire, chaque cession occupe une colonne : reportez chaque
+                ligne de ce tableau dans la colonne suivante, case par case. Les montants
+                sont arrondis à l'euro, comme le demande le formulaire.
+            </p>
+
+            <div class="tableau-defilant">
+                <table class="tableau tableau-2086" id="tableau-2086">
+                    <thead id="tete-2086"></thead>
+                    <tbody id="corps-2086"></tbody>
+                    <tfoot id="pied-2086"></tfoot>
+                </table>
+            </div>
+        </section>
+
+        <!-- Ce que recouvre chaque ligne du formulaire -->
+        <section class="espace" aria-labelledby="titre-legende">
+            <h2 id="titre-legende">Les lignes du formulaire 2086</h2>
+            <dl class="decl-legende" id="legende"></dl>
+        </section>
+    </div>
+</main>
+
+<footer class="pied">
+    <p>Les informations présentées ne constituent pas un conseil fiscal. Vérifiez vos montants avant déclaration.</p>
+</footer>
+
+<script src="/commun.js"></script>
+<script src="/marche.js"></script>
+<script src="/declaration-annee.js"></script>
+</body>
+</html>

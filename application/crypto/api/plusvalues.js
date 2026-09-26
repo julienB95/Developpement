@@ -1,7 +1,12 @@
 // Plus-values de cession d'actifs numeriques — article 150 VH bis du CGI.
 //
-//   plus-value = prix de cession
+//   plus-value = prix de cession net de frais
 //              − (prix total d'acquisition × prix de cession / valeur globale du portefeuille)
+//
+// C'est la ligne 224 du formulaire 2086 : 218 − [223 × 217 / 212]. Le prix de
+// cession du rapport est celui AVANT frais (ligne 217) ; seule la difference
+// porte sur le prix net de frais (ligne 218). Le calcul suit le formulaire a
+// la lettre, pour que la declaration se remplisse avec les chiffres affiches.
 //
 // Trois choses a retenir, parce qu'elles expliquent toute la forme du calcul :
 //
@@ -61,6 +66,8 @@ SELECT c.id,
        c.frais::text AS frais,
        CASE WHEN c.prix_unitaire IS NULL THEN NULL
             ELSE (c.quantite * c.prix_unitaire - c.frais)::text END AS prix_cession,
+       CASE WHEN c.prix_unitaire IS NULL THEN NULL
+            ELSE (c.quantite * c.prix_unitaire)::text END AS prix_brut,
        -- $2 : les récompenses de staking comptent-elles dans le prix
        -- d'acquisition ? Faux, elles n'ont rien coûté et pèsent zéro ; vrai,
        -- leur valeur à la réception est retenue comme prix payé.
@@ -91,13 +98,21 @@ ORDER BY c.horodatage, c.id`;
 // Une cession, un aller-retour : la fraction de capital initial depend du cumul
 // des precedentes, la suite du calcul ne peut donc pas tenir en une requete.
 // C'est le prix a payer pour que pas un montant ne touche un flottant.
+//   $1 prix total d'acquisition (220)   $2 fractions deja imputees (221)
+//   $3 valeur globale (212)             $4 prix net de frais (218)
+//   $5 prix avant frais (217)
 const IMPUTATION = `
 SELECT f.fraction::text AS fraction,
        ($4::numeric - f.fraction)::text AS plus_value,
-       ($2::numeric + f.fraction)::text AS cumul
+       ($2::numeric + f.fraction)::text AS cumul,
+       ($1::numeric - $2::numeric)::text AS acquisition_nette
 FROM (SELECT CASE WHEN $3::numeric > 0
-                  THEN ($1::numeric - $2::numeric) * $4::numeric / $3::numeric
+                  THEN ($1::numeric - $2::numeric) * $5::numeric / $3::numeric
                   END AS fraction) f`;
+
+// Seuil d'exoneration : des cessions dont le total n'excede pas 305 euros sur
+// l'annee ne sont pas imposables (article 150 VH bis, II).
+const SEUIL_EXONERATION = '305';
 
 // Meme une somme est faite par PostgreSQL, a partir du tableau de chaines.
 async function somme(valeurs) {
@@ -127,23 +142,29 @@ function reserves(ligne) {
 }
 
 // Deroule toutes les cessions depuis l'origine pour tenir le cumul des
-// fractions a jour, et ne retient que celles de l'annee demandee.
-async function parAnnee(utilisateurId, annee) {
+// fractions a jour. Chaque cession garde tout ce que le formulaire 2086
+// reclame : c'est le meme deroule qui sert l'accueil et la declaration, pour
+// que les deux ne puissent pas diverger.
+async function derouler(utilisateurId) {
     const staking = await conventionStaking(utilisateurId);
     const { rows: lignes } = await db.requete(
         CESSIONS, [utilisateurId, staking.convention === 'valeur_recue']
     );
 
     let cumul = '0';
-    const retenues = [];
+    const cessions = [];
 
     for (const ligne of lignes) {
         let plusValue = null;
+        let acquisitionNette = null;
+        const cumulAvant = cumul;
 
         if (ligne.prix_cession !== null) {
             const { rows } = await db.requete(IMPUTATION, [
-                ligne.acquisition, cumul, ligne.valeur_globale, ligne.prix_cession,
+                ligne.acquisition, cumul, ligne.valeur_globale,
+                ligne.prix_cession, ligne.prix_brut,
             ]);
+            acquisitionNette = rows[0].acquisition_nette;
             // fraction nulle : valeur globale inconnue ou nulle, rien a imputer.
             // Le cumul ne bouge pas, la cession reste sans plus-value calculable.
             if (rows[0].fraction !== null) {
@@ -152,31 +173,148 @@ async function parAnnee(utilisateurId, annee) {
             }
         }
 
-        if (ligne.annee !== annee) continue;
-
         const motifs = reserves(ligne);
         if (plusValue === null && !motifs.length) {
             motifs.push('valeur globale du portefeuille indisponible');
         }
 
-        retenues.push({
+        cessions.push({
             id: ligne.id,
+            annee: ligne.annee,
             horodatage: ligne.horodatage,
             jour: ligne.jour,
             id_crypto: ligne.id_crypto,
             libelle: ligne.libelle,
             quantite: ligne.quantite,
+            frais: ligne.frais,
+            prix_brut: ligne.prix_brut,
             prix_cession: ligne.prix_cession,
             valeur_globale: ligne.valeur_globale,
+            acquisition: ligne.acquisition,
+            fractions_anterieures: cumulAvant,
+            acquisition_nette: acquisitionNette,
             plus_value: plusValue,
             complet: plusValue !== null && motifs.length === 0,
             reserves: motifs,
         });
     }
 
+    return { staking, cessions };
+}
+
+// Les cessions de l'annee demandee, regroupees par crypto
+async function parAnnee(utilisateurId, annee) {
+    const { staking, cessions } = await derouler(utilisateurId);
+    const retenues = cessions
+        .filter((c) => c.annee === annee)
+        .map((c) => ({
+            id: c.id,
+            horodatage: c.horodatage,
+            jour: c.jour,
+            id_crypto: c.id_crypto,
+            libelle: c.libelle,
+            quantite: c.quantite,
+            prix_cession: c.prix_cession,
+            valeur_globale: c.valeur_globale,
+            plus_value: c.plus_value,
+            complet: c.complet,
+            reserves: c.reserves,
+        }));
+
     const resultat = await regrouper(annee, retenues, await bornes(utilisateurId));
     resultat.staking = staking;
     return resultat;
+}
+
+// Une ligne par annee de cession, de la plus recente a la plus ancienne
+async function parAnnees(utilisateurId) {
+    const { staking, cessions } = await derouler(utilisateurId);
+
+    const annees = [...new Set(cessions.map((c) => c.annee))].sort((a, b) => b - a);
+    const resultat = [];
+    for (const annee of annees) {
+        const lignes = cessions.filter((c) => c.annee === annee);
+        const calculees = lignes.filter((c) => c.plus_value !== null);
+        resultat.push({
+            annee,
+            cessions: lignes.length,
+            prix_cession: await somme(lignes.map((c) => c.prix_brut).filter(Boolean)),
+            plus_value: calculees.length ? await somme(calculees.map((c) => c.plus_value)) : null,
+            complet: lignes.every((c) => c.complet),
+        });
+    }
+
+    return { staking, annees: resultat };
+}
+
+// Ce qu'il faut reporter sur la declaration de l'annee : le detail du
+// formulaire 2086, cession par cession, et le total a porter sur la 2042-C.
+// Il n'y a ni echange entre cryptos ni soulte ici : les lignes 216 et 222
+// valent zero, et la ligne 217 reprend donc la ligne 213.
+async function declaration(utilisateurId, annee) {
+    const { staking, cessions } = await derouler(utilisateurId);
+    const retenues = cessions.filter((c) => c.annee === annee);
+
+    const lignes = retenues.map((c, rang) => ({
+        numero: rang + 1,
+        id_crypto: c.id_crypto,
+        libelle: c.libelle,
+        quantite: c.quantite,
+        horodatage: c.horodatage,
+        l211: c.jour,
+        l212: c.valeur_globale,
+        l213: c.prix_brut,
+        l214: c.frais,
+        l215: c.prix_cession,
+        l216: '0',
+        l217: c.prix_brut,
+        l218: c.prix_cession,
+        l220: c.acquisition,
+        l221: c.fractions_anterieures,
+        l222: '0',
+        l223: c.acquisition_nette,
+        l224: c.plus_value,
+        complet: c.complet,
+        reserves: c.reserves,
+    }));
+
+    const calculees = lignes.filter((l) => l.l224 !== null);
+    const plusValue = calculees.length ? await somme(calculees.map((l) => l.l224)) : null;
+    const prixCession = await somme(lignes.map((l) => l.l213).filter(Boolean));
+
+    const { rows } = await db.requete(
+        'SELECT $1::numeric <= $2::numeric AS exoneree', [prixCession, SEUIL_EXONERATION]
+    );
+
+    // Plus-value en 3AN, moins-value en 3BN, toujours en montant positif
+    let caseDeclaration = null;
+    let montantCase = null;
+    if (plusValue !== null) {
+        const negative = plusValue.charAt(0) === '-';
+        caseDeclaration = negative ? '3BN' : '3AN';
+        montantCase = negative ? plusValue.slice(1) : plusValue;
+    }
+
+    const motifs = [];
+    lignes.forEach((l) => l.reserves.forEach((m) => { if (motifs.indexOf(m) === -1) motifs.push(m); }));
+
+    return {
+        annee,
+        staking,
+        cessions: lignes,
+        total: {
+            cessions: lignes.length,
+            prix_cession: prixCession,
+            frais: await somme(lignes.map((l) => l.l214).filter(Boolean)),
+            plus_value: plusValue,
+            case: caseDeclaration,
+            montant_case: montantCase,
+            exoneree: lignes.length > 0 && rows[0].exoneree,
+            seuil_exoneration: SEUIL_EXONERATION,
+        },
+        complet: lignes.every((l) => l.complet),
+        reserves: motifs,
+    };
 }
 
 // La convention retenue par le compte, et de quoi savoir si elle change
@@ -258,4 +396,4 @@ async function bornes(utilisateurId) {
     return { premiere: rows[0].premiere, derniere: rows[0].derniere };
 }
 
-module.exports = { parAnnee };
+module.exports = { parAnnee, parAnnees, declaration };

@@ -1560,3 +1560,133 @@ body.page-large main { max-width: 1720px; }
 }
 .graphique-lecture { margin: 0; font-weight: 600; }
 .graphique-bornes { margin: 0; color: var(--encre-douce); }
+
+/* --- Déclaration fiscale ------------------------------------------------- */
+
+/* La liste des années reprend le bloc « Mes plus-values » de l'accueil */
+.decl-panneau { max-width: 760px; }
+.decl-note { margin-top: 12px; }
+.decl-sous-titre { margin: -12px 0 20px; font-size: 14px; }
+
+.decl-annee-repere {
+    flex: none;
+    min-width: 58px;
+    padding: 6px 0;
+    border-radius: var(--rayon);
+    background: var(--accent-clair);
+    color: var(--accent-fonce);
+    font-weight: 700;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+.decl-annee-droite {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-left: auto;
+}
+
+@media (max-width: 560px) {
+    .decl-annee { flex-wrap: wrap; }
+    .decl-annee-droite { width: 100%; justify-content: space-between; }
+}
+
+/* Ce qui se reporte sur la 2042-C : la case, lisible d'un coup d'œil */
+.decl-report { margin-bottom: 24px; }
+
+.decl-case-carte {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 14px 16px;
+    background: var(--fond);
+    border-radius: var(--rayon);
+}
+
+.decl-case {
+    flex: none;
+    padding: 8px 14px;
+    border: 2px solid var(--accent);
+    border-radius: 6px;
+    color: var(--accent-fonce);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+}
+
+.decl-case-texte { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 220px; }
+.decl-case-libelle { font-weight: 600; }
+.decl-case-aide { font-size: 13px; color: var(--encre-douce); }
+
+.decl-case-montant { display: flex; flex-direction: column; align-items: flex-end; margin-left: auto; }
+.decl-case-valeur { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.decl-case-exact { font-size: 12px; color: var(--encre-douce); font-variant-numeric: tabular-nums; }
+
+.decl-faits { margin: 14px 0 0; padding-left: 18px; font-size: 14px; line-height: 1.7; }
+.decl-faits strong { font-variant-numeric: tabular-nums; }
+
+.decl-exoneration {
+    margin: 12px 0 0;
+    padding: 10px 12px;
+    border-radius: var(--rayon);
+    background: var(--accent-clair);
+    color: var(--accent-fonce);
+    font-size: 14px;
+}
+
+/* Le formulaire 2086 : une vente par ligne, les numéros de ligne en tête */
+.tableau-2086 { min-width: 1500px; }
+.tableau-2086 thead th { vertical-align: bottom; white-space: normal; line-height: 1.25; }
+
+.ligne-2086 {
+    display: inline-block;
+    min-width: 34px;
+    padding: 1px 6px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    background: var(--accent-clair);
+    color: var(--accent-fonce);
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+.tableau-2086 thead .ligne-2086 { display: block; margin-left: auto; width: fit-content; }
+.ligne-2086-libelle { display: block; font-size: 12px; font-weight: 500; }
+
+/* La vente reste visible quand le tableau défile à l'horizontale */
+.tableau-2086 .decl-vente {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--fond-carte);
+    text-align: left;
+    white-space: nowrap;
+}
+.tableau-2086 tbody tr:hover .decl-vente { background: var(--fond); }
+
+.decl-numero { min-width: 30px; font-size: 12px; color: var(--encre-douce); font-variant-numeric: tabular-nums; }
+.decl-vente-texte { display: flex; flex-direction: column; line-height: 1.2; }
+.decl-vente-crypto { font-weight: 600; }
+.decl-vente-quantite { font-size: 12px; font-weight: 400; color: var(--encre-douce); font-variant-numeric: tabular-nums; }
+
+.tableau-2086 td { white-space: nowrap; }
+.decl-pv { font-weight: 700; }
+
+.decl-incomplete td { background: #fdf3f2; }
+
+.decl-total th,
+.decl-total td {
+    border-top: 2px solid var(--bordure);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+/* Légende des lignes du formulaire */
+.decl-legende { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px 0; }
+.decl-legende dt { margin-top: 10px; font-weight: 600; }
+.decl-legende dt:first-child { margin-top: 0; }
+.decl-legende dd { margin: 0 0 0 44px; font-size: 14px; color: var(--encre-douce); }

@@ -542,6 +542,20 @@ route('GET', '/api/crypto/plus-values', async ({ req, url }) => {
     return { code: 200, corps: await plusvalues.parAnnee(utilisateur.id, annee) };
 });
 
+// Declaration fiscale du compte connecte : les annees de cession, puis pour
+// l'une d'elles le detail du formulaire 2086 et la case de la 2042-C.
+// Reservee aux administrateurs, comme toute route sous /administration/.
+route('GET', '/api/crypto/administration/declaration', async ({ req }) => {
+    const utilisateur = await exigerAdmin(req);
+    return { code: 200, corps: await plusvalues.parAnnees(utilisateur.id) };
+});
+
+route('GET', '/api/crypto/administration/declaration/:annee', async ({ req, params }) => {
+    const utilisateur = await exigerAdmin(req);
+    const annee = exigerEntier(params.annee, 'annee');
+    return { code: 200, corps: await plusvalues.declaration(utilisateur.id, annee) };
+});
+
 function lireOperation(corps) {
     const type = exigerTexte(corps, 'type').toLowerCase();
     if (!TYPES_OPERATION.includes(type)) {
