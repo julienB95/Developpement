@@ -278,7 +278,7 @@ route('GET', '/api/crypto/plateformes', async ({ url }) => {
     // actives=1 : uniquement celles encore proposees a la saisie
     const seulementActives = url.searchParams.get('actives') === '1';
     const { rows } = await db.requete(
-        'SELECT libelle, est_actif, cree_le FROM plateforme'
+        'SELECT libelle, est_actif, frais_defaut, cree_le FROM plateforme'
         + (seulementActives ? ' WHERE est_actif' : '')
         + ' ORDER BY est_actif DESC, libelle'
     );
@@ -288,19 +288,21 @@ route('GET', '/api/crypto/plateformes', async ({ url }) => {
 route('POST', '/api/crypto/plateformes', async ({ req, corps }) => {
     await exigerAdmin(req);
 
-    // Le libellé est la clé : il n'y a rien d'autre à saisir.
-    // ancien_libelle permet de renommer une plateforme ; la contrainte
-    // ON UPDATE CASCADE reporte le nouveau nom sur les opérations.
+    // Le libellé est la clé ; ancien_libelle permet de renommer une plateforme,
+    // la contrainte ON UPDATE CASCADE reporte le nouveau nom sur les opérations.
+    // frais_defaut, facultatif, pré-remplit les frais à la saisie d'une opération.
     const libelle = exigerTexte(corps, 'libelle');
     const actif = corps.est_actif === undefined ? true : corps.est_actif === true;
     const ancien = corps.ancien_libelle ? String(corps.ancien_libelle).trim() : null;
+    const fraisDefaut = exigerDecimal(corps, 'frais_defaut', false);
 
     // Modification : ancien_libelle designe la ligne a mettre a jour
     if (ancien) {
         const { rows } = await db.requete(
-            `UPDATE plateforme SET libelle = $2, est_actif = $3 WHERE libelle = $1
-             RETURNING libelle, est_actif, cree_le`,
-            [ancien, libelle, actif]
+            `UPDATE plateforme SET libelle = $2, est_actif = $3, frais_defaut = $4
+             WHERE libelle = $1
+             RETURNING libelle, est_actif, frais_defaut, cree_le`,
+            [ancien, libelle, actif, fraisDefaut]
         );
         if (!rows.length) throw new ErreurClient('Plateforme introuvable', 404);
         return { code: 200, corps: rows[0] };
@@ -320,9 +322,9 @@ route('POST', '/api/crypto/plateformes', async ({ req, corps }) => {
     }
 
     const { rows } = await db.requete(
-        `INSERT INTO plateforme (libelle, est_actif) VALUES ($1, $2)
-         RETURNING libelle, est_actif, cree_le`,
-        [libelle, actif]
+        `INSERT INTO plateforme (libelle, est_actif, frais_defaut) VALUES ($1, $2, $3)
+         RETURNING libelle, est_actif, frais_defaut, cree_le`,
+        [libelle, actif, fraisDefaut]
     );
     return { code: 201, corps: rows[0] };
 });
@@ -911,7 +913,6 @@ function comptePublic(ligne) {
         est_bloque: ligne.est_bloque,
         mot_de_passe_a_definir: ligne.mot_de_passe_a_definir,
         plateforme_defaut: ligne.plateforme_defaut,
-        frais_defaut: ligne.frais_defaut,
         staking_acquisition: ligne.staking_acquisition,
         cree_le: ligne.cree_le,
     };
@@ -933,7 +934,7 @@ const MAX_TENTATIVES = 3;
 const DUREE_REINITIALISATION = 60 * 60 * 1000;
 
 const CHAMPS_COMPTE = `id, courriel, nom, prenom, est_actif, est_admin, devise,
-                autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`;
+                autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`;
 
 function messageBloque() {
     return new ErreurClient(
@@ -1178,7 +1179,6 @@ route('PUT', '/api/crypto/moi', async ({ req, corps }) => {
     const plateformeDefaut = corps.plateforme_defaut
         ? String(corps.plateforme_defaut).trim()
         : null;
-    const fraisDefaut = exigerDecimal(corps, 'frais_defaut', false);
 
     // Convention fiscale retenue pour les recompenses de staking. Elle change
     // le montant des plus-values : elle appartient au contribuable, pas au
@@ -1192,11 +1192,10 @@ route('PUT', '/api/crypto/moi', async ({ req, corps }) => {
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET courriel = $2, nom = $3, prenom = $4, devise = $5,
-                plateforme_defaut = $6, frais_defaut = $7, staking_acquisition = $8
+                plateforme_defaut = $6, staking_acquisition = $7
          WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`,
-        [utilisateur.id, adresse, nom, prenom, devise, plateformeDefaut, fraisDefaut,
-         stakingAcquisition]
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`,
+        [utilisateur.id, adresse, nom, prenom, devise, plateformeDefaut, stakingAcquisition]
     );
     if (!rows.length) throw new ErreurClient('Compte introuvable', 404);
 
@@ -1218,7 +1217,7 @@ route('PUT', '/api/crypto/moi/devise', async ({ req, corps }) => {
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET devise = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`,
         [utilisateur.id, devise]
     );
     return { code: 200, corps: comptePublic(rows[0]) };
@@ -1252,7 +1251,7 @@ route('GET', '/api/crypto/administration/utilisateurs', async ({ req }) => {
     await exigerAdmin(req);
 
     const { rows } = await db.requete(
-        `SELECT id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le,
+        `SELECT id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le,
                 (mot_de_passe_hash IS NOT NULL) AS a_mot_de_passe,
                 (google_sub IS NOT NULL) AS a_google,
                 (SELECT count(*) FROM session s WHERE s.utilisateur_id = u.id AND s.expire_le > now())::int AS sessions_ouvertes,
@@ -1275,7 +1274,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/activation', async ({
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET est_actif = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`,
         [id, estActif]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1308,7 +1307,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/administrateur', asyn
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET est_admin = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`,
         [id, estAdmin]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1325,7 +1324,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/google', async ({ req
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET autorise_google = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`,
         [id, autorise]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1341,7 +1340,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/deblocage', async ({ 
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET est_bloque = FALSE, tentatives_echouees = 0 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`,
         [id]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1389,7 +1388,7 @@ route('POST', '/api/crypto/administration/utilisateurs', async ({ req, corps }) 
              (courriel, nom, prenom, mot_de_passe_hash, autorise_google, mot_de_passe_a_definir)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise,
-                   autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, frais_defaut, staking_acquisition, cree_le`,
+                   autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`,
         [adresse, nom, prenom, empreinte, autoriseGoogle, aDefinir]
     );
 

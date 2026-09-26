@@ -270,6 +270,7 @@
     var operationsContenu = document.getElementById('operations-contenu');
     var operationsTotal = document.getElementById('operations-total');
     var operationsSentinelle = document.getElementById('operations-sentinelle');
+    var operationsDefilement = document.getElementById('operations-defilement');
     var operationsEtat = document.getElementById('operations-etat');
     var boutonAjout = document.getElementById('bouton-ajout-operation');
 
@@ -426,7 +427,10 @@
     function suiteSiVisible() {
         if (!operationsSentinelle || chargementOperations) return;
         if (pageOperations >= pagesOperations) return;
-        if (operationsSentinelle.getBoundingClientRect().top <= window.innerHeight) {
+        var bas = operationsDefilement
+            ? operationsDefilement.getBoundingClientRect().bottom
+            : window.innerHeight;
+        if (operationsSentinelle.getBoundingClientRect().top <= bas) {
             chargerOperations(true);
         }
     }
@@ -438,10 +442,10 @@
             entrees.forEach(function (entree) {
                 if (entree.isIntersecting) chargerOperations(true);
             });
-        }, { rootMargin: '300px' }).observe(operationsSentinelle);
+        }, { root: operationsDefilement, rootMargin: '300px' }).observe(operationsSentinelle);
     } else if (operationsSentinelle) {
         // Repli pour un navigateur sans IntersectionObserver
-        window.addEventListener('scroll', suiteSiVisible, { passive: true });
+        (operationsDefilement || window).addEventListener('scroll', suiteSiVisible, { passive: true });
         window.addEventListener('resize', suiteSiVisible);
     }
     if (boutonAjout) {

@@ -19,7 +19,6 @@
         courriel: document.getElementById('courriel'),
         devise: document.getElementById('devise'),
         plateforme_defaut: document.getElementById('plateforme_defaut'),
-        frais_defaut: document.getElementById('frais_defaut'),
         staking_acquisition: document.getElementById('staking_acquisition'),
     };
 
@@ -68,7 +67,6 @@
         champs.courriel.value = compte.courriel || '';
         champs.devise.value = compte.devise || 'EUR';
         champs.plateforme_defaut.value = compte.plateforme_defaut || '';
-        champs.frais_defaut.value = versChampDecimal(compte.frais_defaut);
         champs.staking_acquisition.value = compte.staking_acquisition || 'nulle';
 
         accesGoogle.textContent = compte.autorise_google
@@ -88,7 +86,6 @@
             courriel: champs.courriel.value.trim().toLowerCase(),
             devise: champs.devise.value,
             plateforme_defaut: champs.plateforme_defaut.value || null,
-            frais_defaut: champs.frais_defaut.value.trim().replace(',', '.') || null,
             staking_acquisition: champs.staking_acquisition.value,
         };
 

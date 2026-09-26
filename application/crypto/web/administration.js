@@ -892,12 +892,24 @@
 
     var listePlateformes = [];
 
-    // Le libellé est la seule donnée d'une plateforme, et il lui sert de clé.
+    // Retire les zeros de fin sans passer par un flottant
+    function versChampDecimal(valeur) {
+        var texte = String(valeur === null || valeur === undefined ? '' : valeur).trim();
+        if (!texte || texte.indexOf('.') < 0) return texte;
+        return texte.replace(/0+$/, '').replace(/\.$/, '');
+    }
+
+    // Le libellé sert de clé à la plateforme ; ses frais par défaut
+    // pré-remplissent la saisie d'une opération passée chez elle.
     function fichePlateforme(plateforme) {
         var creation = !plateforme;
         ouvrirFiche(creation ? 'Nouvelle plateforme' : 'Modifier ' + plateforme.libelle, [
             { nom: 'libelle', libelle: 'Libellé', obligatoire: true,
               valeur: creation ? '' : plateforme.libelle },
+            { nom: 'frais_defaut', libelle: 'Frais par défaut en euro',
+              valeur: creation ? '' : versChampDecimal(plateforme.frais_defaut),
+              aide: "Repris d'office à la création d'une opération sur cette plateforme, "
+                  + 'modifiable au cas par cas. Vide : frais saisis à la main.' },
             { nom: 'est_actif', libelle: 'Actif', type: 'case',
               valeur: creation ? true : plateforme.est_actif,
               aide: "Une plateforme inactive n'est plus proposée à la saisie d'une opération, "
@@ -912,11 +924,17 @@
             });
             if (doublon) throw new Error('La plateforme « ' + valeurs.libelle + ' » existe déjà.');
 
+            var frais = valeurs.frais_defaut.replace(/\s/g, '').replace(',', '.');
+            if (frais && !/^\d+(\.\d+)?$/.test(frais)) {
+                throw new Error('Frais par défaut : nombre décimal positif attendu.');
+            }
+
             return C.appeler('/plateformes', {
                 method: 'POST',
                 corps: {
                     libelle: valeurs.libelle,
                     est_actif: valeurs.est_actif,
+                    frais_defaut: frais || null,
                     ancien_libelle: creation ? null : plateforme.libelle,
                 },
             }).then(chargerPlateformes);
@@ -930,6 +948,7 @@
         lignes.forEach(function (ligne) {
             var tr = document.createElement('tr');
             tr.appendChild(cellule(ligne.libelle));
+            tr.appendChild(cellule(montant(ligne.frais_defaut)));
 
             var actif = document.createElement('span');
             actif.className = 'etiquette-sens ' + (ligne.est_actif ? 'etiquette-achat' : 'etiquette-vente');
@@ -1278,6 +1297,7 @@
 
     brancherTri('tableau-plateformes', [
         function (l) { return l.libelle; },
+        function (l) { return l.frais_defaut === null ? null : Number(l.frais_defaut); },
         function (l) { return l.est_actif; },
         null,
     ], function () { return listePlateformes; }, afficherPlateformes);

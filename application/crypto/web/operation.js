@@ -192,6 +192,12 @@
             champs[nom].addEventListener('change', verifierObligatoires);
         });
 
+        // Changer de plateforme reprend ses frais par défaut
+        champs.plateforme.addEventListener('change', function () {
+            appliquerFraisPlateforme();
+            verifierObligatoires();
+        });
+
         C.fermerAuClicExterieur(dialogue);
 
         dialogue.addEventListener('close', function () {
@@ -220,8 +226,11 @@
         });
 
         var staking = type === 'staking';
+        var sortieStaking = champs.frais.disabled && !staking;
         if (staking) champs.frais.value = '0';
         champs.frais.disabled = staking;
+        // En quittant le staking, les frais bloqués à zéro reprennent ceux de la plateforme
+        if (sortieStaking) appliquerFraisPlateforme();
 
         champs.note.textContent = NOTES[type] || '';
         champs.note.hidden = !NOTES[type];
@@ -268,6 +277,18 @@
                 libelle: plateforme.libelle + (plateforme.est_actif ? '' : ' — inactive'),
             };
         }), 'Choisir…');
+    }
+
+    // Frais par défaut de la plateforme choisie, en création uniquement : une
+    // opération existante garde les frais qu'elle porte. Sans valeur définie
+    // pour la plateforme, le champ est vidé pour être saisi à la main.
+    function appliquerFraisPlateforme() {
+        if (operationCourante || typeCourant === 'staking' || !referentiel) return;
+        var libelle = champs.plateforme.value;
+        var plateforme = referentiel.plateformes.filter(function (candidate) {
+            return candidate.libelle === libelle;
+        })[0];
+        champs.frais.value = plateforme ? versChampDecimal(plateforme.frais_defaut) : '';
     }
 
     // --- Conversions date -------------------------------------------------
@@ -325,17 +346,20 @@
             champs.quantite.value = modification ? versChampDecimal(operationCourante.quantite) : '';
             champs.prix_unitaire.value = modification ? versChampDecimal(operationCourante.prix_unitaire) : '';
 
-            // Les préférences du compte servent de point de départ à une création
-            champs.frais.value = modification
-                ? versChampDecimal(operationCourante.frais)
-                : versChampDecimal(compte.frais_defaut);
+            // En création, la plateforme par défaut du compte sert de point de
+            // départ, et ses frais par défaut suivent
             champs.plateforme.value = modification
                 ? (operationCourante.plateforme || '')
                 : (compte.plateforme_defaut || '');
+            // Le type est posé avant les frais : appliquerFraisPlateforme lit
+            // typeCourant, et une création part toujours d'un achat
+            champs.frais.disabled = false;
+            typeCourant = modification ? operationCourante.type : 'achat';
+            if (modification) champs.frais.value = versChampDecimal(operationCourante.frais);
+            else appliquerFraisPlateforme();
 
-            // Après le remplissage : sur un staking, le type remet les frais à
-            // zéro, ce que la valeur par défaut du compte écraserait sinon.
-            choisirType(modification ? operationCourante.type : 'achat');
+            // Après le remplissage : sur un staking, le type remet les frais à zéro
+            choisirType(typeCourant);
 
             if (typeof dialogue.showModal === 'function') dialogue.showModal();
             else dialogue.setAttribute('open', '');

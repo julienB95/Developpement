@@ -719,6 +719,36 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
     top: 24px;
     display: grid;
     gap: 24px;
+    min-width: 0;
+}
+
+/* Les colonnes ne s'élargissent jamais au-delà de leur piste de grille :
+   sinon la colonne de gauche déborde sur les opérations */
+.colonne-laterale > *,
+.colonne-principale { min-width: 0; }
+
+/* Chaque bloc défile dans sa propre hauteur */
+.defilement-bloc {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+}
+#liste-detentions { max-height: 45vh; padding-right: 6px; }
+#pv-contenu { max-height: 35vh; padding-right: 6px; }
+
+.defilement-operations {
+    max-height: calc(100vh - 220px);
+    min-height: 240px;
+    overflow-x: auto;
+    margin-top: 12px;
+}
+/* Le bloc gère lui-même les deux axes : l'en-tête du tableau reste visible */
+.defilement-operations .tableau-defilant { overflow: visible; }
+.defilement-operations .tableau thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--fond-carte);
 }
 
 .panneau {
@@ -1149,6 +1179,7 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
 @media (max-width: 780px) {
     .disposition { grid-template-columns: 1fr; }
     .colonne-laterale { position: static; }
+    .defilement-operations { max-height: 70vh; }
     .filtres > .champ-filtre { flex: 1 1 140px; min-width: 0; }
 }
 

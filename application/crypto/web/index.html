@@ -145,7 +145,7 @@
                     Mes cryptos
                 </h2>
 
-                <ul class="liste-detentions" id="liste-detentions"></ul>
+                <ul class="liste-detentions defilement-bloc" id="liste-detentions"></ul>
             </aside>
 
             <!-- Plus-values de cession, année par année (article 150 VH bis) -->
@@ -171,7 +171,7 @@
                     </button>
                 </div>
 
-                <div id="pv-contenu"></div>
+                <div class="defilement-bloc" id="pv-contenu"></div>
             </section>
         </div>
 
@@ -192,11 +192,13 @@
                     </div>
                 </div>
 
-                <div id="operations-contenu"></div>
+                <div class="defilement-bloc defilement-operations" id="operations-defilement">
+                    <div id="operations-contenu"></div>
 
-                <!-- Sentinelle du défilement : dès qu'elle approche de l'écran,
-                     la tranche suivante est demandée -->
-                <div class="sentinelle" id="operations-sentinelle" aria-hidden="true"></div>
+                    <!-- Sentinelle du défilement : dès qu'elle approche du bas du bloc,
+                         la tranche suivante est demandée -->
+                    <div class="sentinelle" id="operations-sentinelle" aria-hidden="true"></div>
+                </div>
 
                 <p class="aide etat-suite" id="operations-etat" role="status"></p>
 

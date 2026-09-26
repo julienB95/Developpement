@@ -70,6 +70,14 @@ CREATE TABLE IF NOT EXISTS plateforme (
 -- mais reste rattachée aux opérations déjà enregistrées.
 ALTER TABLE plateforme ADD COLUMN IF NOT EXISTS est_actif BOOLEAN NOT NULL DEFAULT TRUE;
 
+-- Frais repris par défaut, en euro, à la saisie d'une opération sur cette
+-- plateforme. Facultatifs : sans valeur, les frais se saisissent à la main.
+ALTER TABLE plateforme ADD COLUMN IF NOT EXISTS frais_defaut NUMERIC(38, 18);
+
+ALTER TABLE plateforme DROP CONSTRAINT IF EXISTS plateforme_frais_defaut;
+ALTER TABLE plateforme
+    ADD CONSTRAINT plateforme_frais_defaut CHECK (frais_defaut IS NULL OR frais_defaut >= 0);
+
 -- La clé primaire distingue déjà « Kraken » de « Kraken », mais pas de « kraken ».
 -- Deux plateformes qui ne diffèrent que par la casse sont un doublon.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_plateforme_libelle_unique
@@ -209,12 +217,29 @@ ALTER TABLE utilisateur
 ALTER TABLE utilisateur
     ADD COLUMN IF NOT EXISTS plateforme_defaut TEXT;
 
-ALTER TABLE utilisateur
-    ADD COLUMN IF NOT EXISTS frais_defaut NUMERIC(38, 18);
+-- Les frais par défaut appartenaient au compte ; ils appartiennent désormais
+-- à la plateforme. Chaque plateforme sans frais reprend la valeur la plus
+-- répandue chez les comptes qui l'avaient pour plateforme par défaut.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'utilisateur' AND column_name = 'frais_defaut'
+    ) THEN
+        UPDATE plateforme p
+        SET frais_defaut = r.frais
+        FROM (
+            SELECT plateforme_defaut, mode() WITHIN GROUP (ORDER BY frais_defaut) AS frais
+            FROM utilisateur
+            WHERE plateforme_defaut IS NOT NULL AND frais_defaut IS NOT NULL
+            GROUP BY plateforme_defaut
+        ) r
+        WHERE p.libelle = r.plateforme_defaut AND p.frais_defaut IS NULL;
 
-ALTER TABLE utilisateur DROP CONSTRAINT IF EXISTS utilisateur_frais_defaut;
-ALTER TABLE utilisateur
-    ADD CONSTRAINT utilisateur_frais_defaut CHECK (frais_defaut IS NULL OR frais_defaut >= 0);
+        ALTER TABLE utilisateur DROP CONSTRAINT IF EXISTS utilisateur_frais_defaut;
+        ALTER TABLE utilisateur DROP COLUMN frais_defaut;
+    END IF;
+END $$;
 
 -- Renommer une plateforme suit dans les préférences, comme dans les opérations
 ALTER TABLE utilisateur DROP CONSTRAINT IF EXISTS utilisateur_plateforme_defaut_fkey;
