@@ -12,7 +12,8 @@
 //   - la valeur globale du portefeuille est celle de TOUTES les cryptos
 //     detenues au moment de la cession, au VWAP du jour releve dans
 //     crypto_valeur. Une crypto detenue mais non valorisee la sous-evalue,
-//     donc surevalue la plus-value : ce cas est signale, jamais tu ;
+//     ce qui gonfle la fraction imputee et minore la plus-value : ce cas est
+//     signale, jamais tu ;
 //   - le prix de cession et le prix d'acquisition sont les montants reellement
 //     encaisses et payes, jamais un cours de marche.
 //

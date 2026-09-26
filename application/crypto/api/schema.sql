@@ -48,6 +48,16 @@ ALTER TABLE crypto ADD COLUMN IF NOT EXISTS logo_url TEXT;
 -- Paire Binance en euro, utilisee pour relever la valeur moyenne journaliere
 ALTER TABLE crypto ADD COLUMN IF NOT EXISTS paire_binance TEXT;
 
+-- Paire Kraken en euro : seconde source, pour les cryptos que Binance ne cote
+-- pas en euro. Un vrai marche en euro vaut mieux qu'une conversion depuis un
+-- dollar-stable, qui ajouterait l'imprecision d'un second cours.
+ALTER TABLE crypto ADD COLUMN IF NOT EXISTS paire_kraken TEXT;
+
+-- Paire Bitstamp en euro, en minuscules comme l'attend son API : troisième
+-- source, pour les journées que ni Binance ni Kraken ne cotent — une crypto
+-- peut n'être cotée en euro chez Kraken que depuis une date récente.
+ALTER TABLE crypto ADD COLUMN IF NOT EXISTS paire_bitstamp TEXT;
+
 -- Plateformes d'échange sur lesquelles les opérations sont passées.
 -- Le libellé fait office de clé : une plateforme n'a rien d'autre à porter,
 -- un identifiant technique à côté du nom n'aurait fait qu'alourdir la saisie.
@@ -397,6 +407,7 @@ INSERT INTO crypto (id, libelle, identifiant_coingecko) VALUES
     ('HBAR',  'Hedera',                                'hedera-hashgraph'),
     ('LTC',   'Litecoin',                              'litecoin'),
     ('RNDR',  'Render',                                'render-token'),
+    ('TON',   'Toncoin',                               'the-open-network'),
     ('TRUMP', 'Official Trump',                        'official-trump'),
     ('XLM',   'Stellar',                               'stellar')
 ON CONFLICT (id) DO UPDATE
@@ -414,8 +425,19 @@ UPDATE crypto SET paire_binance = 'RENDEREUR'
  WHERE id = 'RNDR' AND paire_binance = 'RNDREUR';
 
 UPDATE crypto SET paire_binance = NULL
- WHERE id IN ('AAVE', 'CTSI', 'ETC', 'FET', 'GRT', 'HBAR', 'TRUMP')
+ WHERE id IN ('AAVE', 'CTSI', 'ETC', 'FET', 'GRT', 'HBAR', 'TON', 'TRUMP')
    AND paire_binance = id || 'EUR';
+
+-- Ces cryptos-là sont cotées en euro chez Kraken. Une paire déjà renseignée,
+-- à la main ou par une migration antérieure, n'est pas réécrite.
+UPDATE crypto SET paire_kraken = id || 'EUR'
+ WHERE id IN ('AAVE', 'CTSI', 'ETC', 'FET', 'GRT', 'HBAR', 'TON', 'TRUMP')
+   AND paire_kraken IS NULL;
+
+-- Bitstamp cote en euro toutes celles-là, sauf CTSI
+UPDATE crypto SET paire_bitstamp = lower(id) || 'eur'
+ WHERE id IN ('AAVE', 'ETC', 'FET', 'GRT', 'HBAR', 'TON', 'TRUMP')
+   AND paire_bitstamp IS NULL;
 
 INSERT INTO plateforme (libelle) VALUES
     ('Binance'),

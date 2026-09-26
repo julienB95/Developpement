@@ -1,12 +1,24 @@
-// Valeur moyenne journalière des crypto-actifs, en euro, relevée chez Binance.
+// Valeur moyenne journalière des crypto-actifs, en euro, relevée sur trois
+// marchés en euro, dans cet ordre : Binance, Kraken, Bitstamp.
 //
 // Le VWAP est le quotient du volume échangé en euro par le volume échangé en
 // crypto : c'est la cotation moyenne journalière pondérée par les volumes,
 // celle que le BOFiP admet pour valoriser un portefeuille au moment d'une cession.
+// Binance fournit les deux volumes, le VWAP est calculé ici ; Kraken fournit le
+// VWAP lui-même, repris tel quel ; Bitstamp ne donne ni l'un ni l'autre, le VWAP
+// est reconstitué à partir de ses 24 bougies horaires.
 //
-// Les bougies quotidiennes de Binance sont calées sur 00:00 UTC. C'est la
+// Le repli se fait journée par journée, pas crypto par crypto : une crypto cotée
+// en euro sur une plateforme depuis une date donnée prend la source suivante
+// pour les journées antérieures. Chaque valeur enregistrée garde sa provenance.
+//
+// Les bougies des trois plateformes sont calées sur 00:00 UTC. C'est la
 // convention retenue ici, appliquée de la même façon à toutes les lignes :
 // mieux vaut une règle uniforme et documentée qu'un découpage approximatif.
+//
+// Kraken ne sert que ses 720 dernières bougies : une journée plus ancienne n'y
+// est plus disponible. Une journée close relevée étant ensuite figée en base,
+// il suffit de relever tôt.
 //
 // La bougie du jour en cours est servie dès la première transaction, mais son
 // VWAP ne couvre que les heures écoulées. Elle est donc marquée est_partiel,
@@ -15,14 +27,40 @@
 const db = require('../../_commun/api/db');
 
 const URL_KLINES = 'https://api.binance.com/api/v3/klines';
+const URL_KRAKEN = 'https://api.kraken.com/0/public/OHLC';
+const URL_BITSTAMP = 'https://www.bitstamp.net/api/v2/ohlc';
 const DELAI_REPONSE = 8000;
 const JOUR_MS = 24 * 60 * 60 * 1000;
 
-// Sans paire Binance, aucune valeur ne peut être relevée pour cette crypto :
-// la journée reste sans valorisation, et le bilan doit le dire. Écarter ces
-// cryptos sans bruit sous-évaluerait le portefeuille au moment de la cession,
-// et donc surévaluerait la plus-value, sans aucun signal.
-const SANS_PAIRE = 'aucune paire Binance renseignée';
+// Sans paire sur aucune des trois plateformes, aucune valeur ne peut être
+// relevée pour cette crypto : la journée reste sans valorisation, et le bilan
+// doit le dire. Écarter ces cryptos sans bruit sous-évaluerait le portefeuille
+// au moment de la cession : la fraction du prix d'acquisition imputée à la
+// cession en serait gonflée, et la plus-value minorée, sans aucun signal.
+const SANS_PAIRE = 'aucune paire Binance, Kraken ni Bitstamp renseignée';
+
+// Les sources d'une crypto, dans l'ordre où elles sont interrogées
+function sourcesDe(crypto) {
+    const sources = [];
+    if (crypto.paire_binance) sources.push({ nom: 'binance', paire: crypto.paire_binance });
+    if (crypto.paire_kraken) sources.push({ nom: 'kraken', paire: crypto.paire_kraken });
+    if (crypto.paire_bitstamp) sources.push({ nom: 'bitstamp', paire: crypto.paire_bitstamp });
+    return sources;
+}
+
+// Les journées d'une période, bornes comprises, au format AAAA-MM-JJ
+function joursEntre(debut, fin) {
+    const depuis = Date.parse(debut + 'T00:00:00Z');
+    const jusqua = Date.parse(fin + 'T00:00:00Z');
+    if (Number.isNaN(depuis) || Number.isNaN(jusqua)) throw new Error('Dates invalides');
+    if (jusqua < depuis) throw new Error('La date de fin précède la date de début');
+
+    const jours = [];
+    for (let instant = depuis; instant <= jusqua; instant += JOUR_MS) {
+        jours.push(new Date(instant).toISOString().slice(0, 10));
+    }
+    return jours;
+}
 
 // Jour civil français d'un instant donné, au format AAAA-MM-JJ
 function jourParis(instant) {
@@ -72,15 +110,19 @@ async function bougieQuotidienne(paire, jour) {
 }
 
 // Le VWAP est calculé par PostgreSQL en NUMERIC : aucun montant ne transite
-// par un flottant JavaScript, même le temps d'une division.
-async function enregistrer(idCrypto, paire, jour, bougie) {
+// par un flottant JavaScript, même le temps d'une division. Quand la source
+// le fournit déjà (Kraken), il est repris tel quel et le volume en euro en est
+// déduit, pour que la ligne garde la même forme quelle que soit sa provenance.
+async function enregistrer(idCrypto, source, jour, bougie) {
     await db.requete(
         `INSERT INTO crypto_valeur
              (id_crypto, date, devise, source, vwap,
               ouverture, haut, bas, cloture, volume, volume_devise, est_partiel)
          VALUES ($1, $2::date, 'EUR', $3,
-                 CASE WHEN $8::numeric > 0 THEN $9::numeric / $8::numeric END,
-                 $4, $5, $6, $7, $8, $9, $10)
+                 CASE WHEN $8::numeric > 0
+                      THEN COALESCE($11::numeric, $9::numeric / $8::numeric) END,
+                 $4, $5, $6, $7, $8,
+                 COALESCE($9::numeric, $11::numeric * $8::numeric), $10)
          ON CONFLICT (id_crypto, date) DO UPDATE
              SET source = EXCLUDED.source,
                  vwap = EXCLUDED.vwap,
@@ -93,9 +135,10 @@ async function enregistrer(idCrypto, paire, jour, bougie) {
                  est_partiel = EXCLUDED.est_partiel,
                  releve_le = now()`,
         [
-            idCrypto, jour, 'binance:' + paire,
+            idCrypto, jour, source.nom + ':' + source.paire,
             bougie.ouverture, bougie.haut, bougie.bas, bougie.cloture,
-            bougie.volume, bougie.volume_devise, bougie.partiel === true,
+            bougie.volume, bougie.volume_devise || null, bougie.partiel === true,
+            bougie.vwap || null,
         ]
     );
 }
@@ -146,29 +189,182 @@ async function bougiesPeriode(paire, debut, fin) {
     }));
 }
 
+// Bougies quotidiennes Kraken d'une période, en une requête : Kraken renvoie
+// d'un coup tout ce qu'il a depuis la date demandée, dans la limite de ses
+// 720 dernières bougies. Les journées hors de cette fenêtre sont simplement
+// absentes du résultat, comme une journée sans cotation.
+async function bougiesKraken(paire, debut, fin) {
+    const depuis = Date.parse(debut + 'T00:00:00Z');
+    const jusqua = Date.parse(fin + 'T00:00:00Z');
+    if (Number.isNaN(depuis) || Number.isNaN(jusqua)) {
+        throw new Error('Dates invalides');
+    }
+    if (jusqua < depuis) throw new Error('La date de fin précède la date de début');
+
+    const url = new URL(URL_KRAKEN);
+    url.searchParams.set('pair', paire);
+    url.searchParams.set('interval', '1440');
+    // Une seconde avant minuit : la bougie du jour de début est incluse
+    url.searchParams.set('since', String(depuis / 1000 - 1));
+
+    const reponse = await fetch(url, { signal: AbortSignal.timeout(DELAI_REPONSE) });
+    if (!reponse.ok) throw new Error(`Kraken a répondu ${reponse.status}`);
+
+    const corps = await reponse.json();
+    if (Array.isArray(corps.error) && corps.error.length) {
+        throw new Error('Kraken : ' + corps.error.join(', '));
+    }
+
+    // La clé du résultat est le nom interne de la paire (XETCZEUR pour
+    // ETCEUR) : seule compte celle qui n'est pas le curseur « last ».
+    const cle = Object.keys(corps.result || {}).find((nom) => nom !== 'last');
+    if (!cle || !Array.isArray(corps.result[cle])) {
+        throw new Error('Réponse inattendue de Kraken');
+    }
+
+    // [ouverture le (s), ouverture, haut, bas, cloture, vwap, volume, nombre]
+    return corps.result[cle]
+        .filter((bougie) => bougie[0] * 1000 >= depuis && bougie[0] * 1000 <= jusqua)
+        .map((bougie) => ({
+            jour: new Date(bougie[0] * 1000).toISOString().slice(0, 10),
+            ouverture: bougie[1],
+            haut: bougie[2],
+            bas: bougie[3],
+            cloture: bougie[4],
+            vwap: bougie[5],
+            volume: bougie[6],
+            partiel: estPartielle(bougie[0] * 1000 + JOUR_MS - 1),
+        }));
+}
+
+// Bitstamp ne publie pas de VWAP, ni de volume en euro. La journée est donc
+// reconstituée à partir de ses 24 bougies horaires : chaque heure pèse son
+// volume au prix typique de l'heure, (haut + bas + clôture) / 3. Le résultat
+// reste compris entre le plus bas et le plus haut de la journée. Toute
+// l'agrégation est faite par PostgreSQL, en NUMERIC.
+async function bougieBitstamp(paire, jour) {
+    const debut = Date.parse(jour + 'T00:00:00Z');
+    if (Number.isNaN(debut)) throw new Error(`Date invalide : ${jour}`);
+
+    const url = new URL(`${URL_BITSTAMP}/${encodeURIComponent(paire)}/`);
+    url.searchParams.set('step', '3600');
+    url.searchParams.set('limit', '24');
+    url.searchParams.set('start', String(debut / 1000));
+    url.searchParams.set('end', String((debut + JOUR_MS) / 1000 - 1));
+
+    const reponse = await fetch(url, { signal: AbortSignal.timeout(DELAI_REPONSE) });
+    if (!reponse.ok) throw new Error(`Bitstamp a répondu ${reponse.status}`);
+
+    const corps = await reponse.json();
+    if (!corps.data || !Array.isArray(corps.data.ohlc)) {
+        throw new Error('Réponse inattendue de Bitstamp');
+    }
+
+    const heures = corps.data.ohlc.filter((heure) => {
+        const instant = Number(heure.timestamp) * 1000;
+        return instant >= debut && instant < debut + JOUR_MS;
+    });
+    if (!heures.length) return null;
+
+    const { rows } = await db.requete(
+        `SELECT (array_agg(o ORDER BY t))[1]::text AS ouverture,
+                max(h)::text AS haut,
+                min(l)::text AS bas,
+                (array_agg(c ORDER BY t DESC))[1]::text AS cloture,
+                sum(v)::text AS volume,
+                sum((h + l + c) / 3 * v)::text AS volume_devise
+         FROM unnest($1::bigint[], $2::numeric[], $3::numeric[], $4::numeric[],
+                     $5::numeric[], $6::numeric[]) AS x(t, o, h, l, c, v)`,
+        [
+            heures.map((heure) => heure.timestamp),
+            heures.map((heure) => heure.open),
+            heures.map((heure) => heure.high),
+            heures.map((heure) => heure.low),
+            heures.map((heure) => heure.close),
+            heures.map((heure) => heure.volume),
+        ]
+    );
+
+    return { ...rows[0], partiel: estPartielle(debut + JOUR_MS - 1) };
+}
+
+// Une journée : même interface quelle que soit la source
+async function bougieDuJour(source, jour) {
+    if (source.nom === 'kraken') return (await bougiesKraken(source.paire, jour, jour))[0] || null;
+    if (source.nom === 'bitstamp') return bougieBitstamp(source.paire, jour);
+    return bougieQuotidienne(source.paire, jour);
+}
+
+// Plusieurs journées, rendues par date. Binance et Kraken servent toute la
+// plage en une requête ; Bitstamp, dont la journée se reconstitue heure par
+// heure, est interrogé journée par journée — seulement pour celles que les
+// sources précédentes n'ont pas couvertes.
+async function bougiesPourJours(source, jours) {
+    if (source.nom === 'bitstamp') {
+        const parJour = new Map();
+        for (const jour of jours) {
+            const bougie = await bougieBitstamp(source.paire, jour);
+            if (bougie) parJour.set(jour, bougie);
+        }
+        return parJour;
+    }
+
+    const debut = jours[0];
+    const fin = jours[jours.length - 1];
+    const bougies = source.nom === 'kraken'
+        ? await bougiesKraken(source.paire, debut, fin)
+        : await bougiesPeriode(source.paire, debut, fin);
+    return new Map(bougies.map((bougie) => [bougie.jour, bougie]));
+}
+
 // Relève une plage de dates pour une crypto donnée. Comme ailleurs, une journée
 // close déjà enregistrée n'est pas réécrite, sauf demande explicite ; une
 // journée restée partielle, elle, est reprise sans qu'il faille le demander.
 async function releverPeriode(idCrypto, debut, fin, ecraser) {
     const { rows } = await db.requete(
-        'SELECT id, paire_binance FROM crypto WHERE id = $1',
+        'SELECT id, paire_binance, paire_kraken, paire_bitstamp FROM crypto WHERE id = $1',
         [idCrypto]
     );
     if (!rows.length) throw new Error('Crypto inconnue');
-    if (!rows[0].paire_binance) throw new Error('Aucune paire Binance renseignée pour cette crypto');
+    const sources = sourcesDe(rows[0]);
+    if (!sources.length) throw new Error(SANS_PAIRE[0].toUpperCase() + SANS_PAIRE.slice(1));
 
-    const bougies = await bougiesPeriode(rows[0].paire_binance, debut, fin);
-    const bilan = { id_crypto: idCrypto, releves: 0, ignorees: 0, jours: bougies.length };
+    const bilan = { id_crypto: idCrypto, releves: 0, ignorees: 0, jours: 0 };
 
-    for (const bougie of bougies) {
-        if (!ecraser && await valeurFigee(idCrypto, bougie.jour)) {
-            bilan.ignorees += 1;
-            continue;
-        }
-        await enregistrer(idCrypto, rows[0].paire_binance, bougie.jour, bougie);
-        bilan.releves += 1;
+    // Les journées figées sont écartées d'emblée : inutile d'interroger une
+    // source pour une valeur qui ne sera pas réécrite.
+    let restants = [];
+    for (const jour of joursEntre(debut, fin)) {
+        if (!ecraser && await valeurFigee(idCrypto, jour)) bilan.ignorees += 1;
+        else restants.push(jour);
     }
 
+    const erreurs = [];
+    for (const source of sources) {
+        if (!restants.length) break;
+
+        let parJour;
+        try {
+            parJour = await bougiesPourJours(source, restants);
+        } catch (err) {
+            // Une source en panne ne prive pas des suivantes
+            erreurs.push(`${source.nom} : ${err.message}`);
+            continue;
+        }
+
+        const encore = [];
+        for (const jour of restants) {
+            const bougie = parJour.get(jour);
+            if (!bougie) { encore.push(jour); continue; }
+            await enregistrer(idCrypto, source, jour, bougie);
+            bilan.releves += 1;
+        }
+        restants = encore;
+    }
+
+    if (!bilan.releves && erreurs.length) throw new Error(erreurs.join(' ; '));
+
+    bilan.jours = bilan.releves + bilan.ignorees;
     return bilan;
 }
 
@@ -180,10 +376,10 @@ async function releverPeriode(idCrypto, debut, fin, ecraser) {
 // marquée partielle et reste rafraîchie, jusqu'à ce que completerPartielles()
 // la termine une fois la clôture passée.
 async function releverPourUtilisateur(utilisateurId, jour) {
-    // Toutes les cryptos du compte, paire Binance ou non : celles qui n'en ont
-    // pas ressortent en échec plutôt que d'être écartées de la liste.
+    // Toutes les cryptos du compte, paire ou non : celles qui n'en ont aucune
+    // ressortent en échec plutôt que d'être écartées de la liste.
     const { rows: cryptos } = await db.requete(
-        `SELECT DISTINCT c.id, c.paire_binance
+        `SELECT DISTINCT c.id, c.paire_binance, c.paire_kraken, c.paire_bitstamp
          FROM operation o
          JOIN crypto c ON c.id = o.id_crypto
          WHERE o.utilisateur_id = $1
@@ -199,26 +395,33 @@ async function releverPourUtilisateur(utilisateurId, jour) {
             continue;
         }
 
-        if (!crypto.paire_binance) {
+        const sources = sourcesDe(crypto);
+        if (!sources.length) {
             bilan.echecs.push({ id_crypto: crypto.id, raison: SANS_PAIRE });
             continue;
         }
 
-        let bougie;
-        try {
-            bougie = await bougieQuotidienne(crypto.paire_binance, jour);
-        } catch (err) {
-            bilan.echecs.push({ id_crypto: crypto.id, raison: err.message });
+        // Première source qui cote la journée ; les raisons des autres ne
+        // servent qu'à expliquer un échec complet.
+        const raisons = [];
+        let retenue = null;
+        for (const source of sources) {
+            try {
+                const bougie = await bougieDuJour(source, jour);
+                if (bougie) { retenue = { source, bougie }; break; }
+                raisons.push(`${source.nom} : aucune cotation ce jour-là`);
+            } catch (err) {
+                raisons.push(`${source.nom} : ${err.message}`);
+            }
+        }
+
+        if (!retenue) {
+            bilan.echecs.push({ id_crypto: crypto.id, raison: raisons.join(' ; ') });
             continue;
         }
 
-        if (!bougie) {
-            bilan.echecs.push({ id_crypto: crypto.id, raison: 'aucune cotation ce jour-là' });
-            continue;
-        }
-
         try {
-            await enregistrer(crypto.id, crypto.paire_binance, jour, bougie);
+            await enregistrer(crypto.id, retenue.source, jour, retenue.bougie);
             bilan.releves.push(crypto.id);
         } catch (err) {
             bilan.echecs.push({ id_crypto: crypto.id, raison: err.message });
@@ -237,11 +440,12 @@ async function releverPourUtilisateur(utilisateurId, jour) {
 // absente ou partielle, et dont la journée UTC est maintenant close.
 async function completerPartielles(utilisateurId) {
     const { rows } = await db.requete(
-        `SELECT a.id, a.paire_binance, to_char(j.jour, 'YYYY-MM-DD') AS jour
+        `SELECT a.id, a.paire_binance, a.paire_kraken, a.paire_bitstamp,
+                to_char(j.jour, 'YYYY-MM-DD') AS jour
          FROM (SELECT DISTINCT (o.horodatage AT TIME ZONE 'Europe/Paris')::date AS jour
                FROM operation o
                WHERE o.utilisateur_id = $1 AND o.type = 'vente') j
-         CROSS JOIN (SELECT DISTINCT c.id, c.paire_binance
+         CROSS JOIN (SELECT DISTINCT c.id, c.paire_binance, c.paire_kraken, c.paire_bitstamp
                      FROM operation o
                      JOIN crypto c ON c.id = o.id_crypto
                      WHERE o.utilisateur_id = $1) a
@@ -252,18 +456,20 @@ async function completerPartielles(utilisateurId) {
         [utilisateurId]
     );
 
-    // Une seule requête sortante par crypto couvre toute sa plage de journées.
-    // Binance plafonne à 1000 bougies par réponse : au-delà, les journées non
-    // couvertes restent à reprendre et le passage suivant repartira d'elles.
+    // Chaque source couvre en une passe toutes les journées encore à relever ;
+    // celles qu'elle ne cote pas passent à la suivante. Binance plafonne à
+    // 1000 bougies par réponse, Kraken ne remonte pas au-delà de 720 : ce
+    // qu'aucune source ne couvre reste à reprendre au passage suivant.
     const parCrypto = new Map();
     const sansPaire = new Map();
     for (const ligne of rows) {
-        if (!ligne.paire_binance) {
+        const sources = sourcesDe(ligne);
+        if (!sources.length) {
             sansPaire.set(ligne.id, (sansPaire.get(ligne.id) || 0) + 1);
             continue;
         }
         if (!parCrypto.has(ligne.id)) {
-            parCrypto.set(ligne.id, { paire: ligne.paire_binance, jours: [] });
+            parCrypto.set(ligne.id, { sources, jours: [] });
         }
         parCrypto.get(ligne.id).jours.push(ligne.jour);
     }
@@ -280,29 +486,36 @@ async function completerPartielles(utilisateurId) {
     }
 
     for (const [idCrypto, cible] of parCrypto) {
-        let bougies;
-        try {
-            bougies = await bougiesPeriode(
-                cible.paire, cible.jours[0], cible.jours[cible.jours.length - 1]
-            );
-        } catch (err) {
-            bilan.echecs.push({ id_crypto: idCrypto, raison: err.message });
-            continue;
-        }
+        let restants = cible.jours;
 
-        const parJour = new Map(bougies.map((bougie) => [bougie.jour, bougie]));
+        for (const source of cible.sources) {
+            if (!restants.length) break;
 
-        for (const jour of cible.jours) {
-            const bougie = parJour.get(jour);
-            // Aucune cotation ce jour-là, ou bougie encore ouverte : on repassera
-            if (!bougie || bougie.partiel) continue;
-
+            let parJour;
             try {
-                await enregistrer(idCrypto, cible.paire, jour, bougie);
-                bilan.completees.push({ id_crypto: idCrypto, jour });
+                parJour = await bougiesPourJours(source, restants);
             } catch (err) {
-                bilan.echecs.push({ id_crypto: idCrypto, jour, raison: err.message });
+                // Une source en panne ne prive pas des suivantes
+                bilan.echecs.push({ id_crypto: idCrypto, raison: `${source.nom} : ${err.message}` });
+                continue;
             }
+
+            const encore = [];
+            for (const jour of restants) {
+                const bougie = parJour.get(jour);
+                // Pas de cotation ici : la source suivante est interrogée
+                if (!bougie) { encore.push(jour); continue; }
+                // Bougie encore ouverte : on repassera, sans changer de source
+                if (bougie.partiel) continue;
+
+                try {
+                    await enregistrer(idCrypto, source, jour, bougie);
+                    bilan.completees.push({ id_crypto: idCrypto, jour });
+                } catch (err) {
+                    bilan.echecs.push({ id_crypto: idCrypto, jour, raison: err.message });
+                }
+            }
+            restants = encore;
         }
     }
 

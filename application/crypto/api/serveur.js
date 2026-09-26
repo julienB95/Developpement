@@ -1430,8 +1430,8 @@ route('POST', '/api/crypto/administration/utilisateurs', async ({ req, corps }) 
     };
 });
 
-// Relève d'une période chez Binance, à la demande d'un administrateur.
-// Une seule requête sortante couvre jusqu'à 1000 jours.
+// Relève d'une période à la demande d'un administrateur : Binance, puis Kraken
+// et Bitstamp pour les journées que la source précédente ne cote pas.
 route('POST', '/api/crypto/administration/valeurs/relever', async ({ req, corps }) => {
     await exigerAdmin(req);
 
@@ -1439,9 +1439,9 @@ route('POST', '/api/crypto/administration/valeurs/relever', async ({ req, corps 
     const fin = exigerTexte(corps, 'fin');
     const ecraser = corps.ecraser === true;
 
-    // Sans crypto précisée, tout le référentiel. Celles qui n'ont pas de paire
-    // Binance ressortent en erreur dans le bilan plutôt que d'être écartées
-    // sans bruit : c'est une lacune du référentiel, pas un cas normal.
+    // Sans crypto précisée, tout le référentiel. Celles qui n'ont de paire sur
+    // aucune plateforme ressortent en erreur dans le bilan plutôt que d'être
+    // écartées sans bruit : c'est une lacune du référentiel, pas un cas normal.
     let cibles;
     if (corps.id_crypto) {
         cibles = [String(corps.id_crypto).toUpperCase()];
