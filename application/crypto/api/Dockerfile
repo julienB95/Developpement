@@ -10,6 +10,10 @@ RUN npm ci --omit=dev
 
 COPY application ./application
 
+# Sur le NAS, les ACL Synology donnent des droits 000 aux fichiers copies :
+# sans ce rattrapage, l'utilisateur node ne pourrait pas lire le code.
+RUN chmod -R a+rX,go-w package.json package-lock.json application
+
 # Dans un conteneur, l'ecoute doit couvrir toutes les interfaces :
 # sur 127.0.0.1 le processus resterait injoignable depuis le NAS.
 ENV NODE_ENV=production \

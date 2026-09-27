@@ -2,6 +2,8 @@
 # ni les secrets, ni l'historique, ni les dependances locales.
 .env
 .env.*
+**/.env
+**/.env.*
 node_modules/
 *.db
 .git/

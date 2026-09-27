@@ -10,7 +10,7 @@ services:
       dockerfile: application/crypto/api/Dockerfile
     image: crypto-api:local
     container_name: crypto
-    restart: unless-stopped
+    restart: always
     # Le .env de la racine n'est jamais copie dans l'image :
     # il est lu a l'execution, depuis le NAS uniquement.
     env_file:
