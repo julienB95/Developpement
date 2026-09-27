@@ -11,7 +11,6 @@ const marche = require('./marche');
 const actualites = require('./actualites');
 const valeurs = require('./valeurs');
 const plusvalues = require('./plusvalues');
-const importation = require('./importation');
 const sauvegarde = require('./sauvegarde');
 const motdepasse = require('../../_commun/api/motdepasse');
 const courriel = require('../../_commun/api/courriel');
@@ -780,90 +779,6 @@ route('DELETE', '/api/crypto/operations/:id', async ({ req, params }) => {
     // Les valeurs de marche relevees ne sont pas supprimees : elles ne sont pas
     // la propriete de l'operation et peuvent servir a d'autres cessions.
     return { code: 200, corps: { statut: 'operation supprimee', id } };
-});
-
-// --- Import d'operations ---------------------------------------------------
-// Le modele et la description des colonnes sont publics : ils ne portent
-// aucune donnee de compte, et le lien de telechargement est un <a> ordinaire,
-// qui ne peut pas presenter le jeton de session.
-const TYPE_CLASSEUR = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-
-route('GET', '/api/crypto/importation/modele', async () => {
-    // Le classeur est construit a la demande : ses listes deroulantes tiennent
-    // leurs valeurs du referentiel, qui bouge.
-    let contenu;
-    try {
-        contenu = await importation.modele();
-    } catch (err) {
-        throw new ErreurClient('Modèle indisponible : ' + err.message, 503);
-    }
-
-    return {
-        code: 200,
-        brut: {
-            contenu,
-            entetes: {
-                'Content-Type': TYPE_CLASSEUR,
-                'Content-Disposition': 'attachment; filename="modele-operations.xlsx"',
-                'Content-Length': contenu.length,
-                'Cache-Control': 'no-cache',
-            },
-        },
-    };
-});
-
-route('GET', '/api/crypto/importation/colonnes', async () => ({
-    code: 200,
-    corps: importation.description(),
-}));
-
-// Chaque vente importee est une cession : la valeur du portefeuille au jour ou
-// elle a eu lieu est relevee dans la foulee, comme pour une saisie a l'unite.
-async function releverApresImport(utilisateurId, jours) {
-    const bilans = [];
-    for (const jour of jours) {
-        try {
-            bilans.push(await valeurs.releverPourUtilisateur(utilisateurId, jour));
-        } catch (err) {
-            bilans.push({ jour, releves: [], deja: [], echecs: [{ raison: err.message }] });
-        }
-    }
-    bilans.forEach((bilan) => journaliserEchecs(bilan.echecs));
-    return bilans;
-}
-
-// simuler : le fichier est controle et le rapport rendu sans rien ecrire.
-// C'est le premier passage de l'interface, pour qu'un fichier a corriger ne
-// laisse pas la moitie de ses lignes en base.
-// Le fichier arrive en base64 : un classeur est binaire, et le corps des
-// requetes de cette API est du JSON. C'est la signature des octets, pas
-// l'extension annoncee, qui dira si c'est un classeur ou un CSV.
-route('POST', '/api/crypto/importation', async ({ req, corps }) => {
-    const utilisateur = await exigerConnexion(req);
-    if (typeof corps.fichier !== 'string' || !corps.fichier.trim()) {
-        throw new ErreurClient('Champ requis : fichier');
-    }
-
-    const octets = Buffer.from(corps.fichier, 'base64');
-    if (!octets.length) throw new ErreurClient('Fichier vide ou illisible');
-
-    let rapport;
-    try {
-        rapport = await importation.importer(utilisateur.id, octets, corps.simuler === true);
-    } catch (err) {
-        // Seules les erreurs de lecture du fichier sont des erreurs du client ;
-        // une panne de base reste une erreur serveur.
-        if (err.code === 400) throw new ErreurClient(err.message, 400);
-        throw err;
-    }
-
-    if (rapport.jours_de_vente.length) {
-        rapport.valeurs = await releverApresImport(utilisateur.id, rapport.jours_de_vente);
-        rapport.reprise = await valeurs.completerPartielles(utilisateur.id);
-        journaliserEchecs(rapport.reprise.echecs);
-    }
-
-    return { code: rapport.importees ? 201 : 200, corps: rapport };
 });
 
 // --- Logos des cryptos -----------------------------------------------------

@@ -1,6 +1,6 @@
-// Archives ZIP : ecriture et lecture, sans dependance externe.
+// Archives ZIP : ecriture seule, sans dependance externe.
 //
-// Node sait deflater, inflater et calculer un CRC32 : le reste tient dans les
+// Node sait deflater et calculer un CRC32 : le reste tient dans les
 // entetes du format. Ce module ne connait aucun type de document, il rend et
 // accepte des noms et des tampons.
 const zlib = require('zlib');
@@ -23,7 +23,7 @@ function versTampon(contenu) {
 
 // entrees : [{ nom, contenu }], le contenu etant un Buffer ou une chaine UTF-8.
 // options.horodatage : date portee par toutes les entrees. Une date figee rend
-// l'archive reproductible, ce dont l'ecriture des classeurs a besoin.
+// l'archive reproductible.
 function ecrire(entrees, options = {}) {
     const { heure, jour } = dateDos(options.horodatage || new Date());
     const morceaux = [];
@@ -101,51 +101,4 @@ function ecrire(entrees, options = {}) {
     return Buffer.concat(morceaux);
 }
 
-function lire(tampon) {
-    // La fin de catalogue est cherchee depuis la fin : elle porte un
-    // commentaire de longueur variable, sa position n'est pas fixe.
-    let fin = -1;
-    const plancher = Math.max(0, tampon.length - 22 - 65535);
-    for (let rang = tampon.length - 22; rang >= plancher; rang -= 1) {
-        if (tampon.readUInt32LE(rang) === 0x06054b50) { fin = rang; break; }
-    }
-    if (fin === -1) throw new Error('Archive illisible : fin de catalogue introuvable');
-
-    const nombre = tampon.readUInt16LE(fin + 10);
-    let position = tampon.readUInt32LE(fin + 16);
-    const fichiers = new Map();
-
-    for (let rang = 0; rang < nombre; rang += 1) {
-        if (tampon.readUInt32LE(position) !== 0x02014b50) {
-            throw new Error('Archive illisible : entrée de catalogue invalide');
-        }
-        const methode = tampon.readUInt16LE(position + 10);
-        const tailleCompressee = tampon.readUInt32LE(position + 20);
-        const longueurNom = tampon.readUInt16LE(position + 28);
-        const longueurExtra = tampon.readUInt16LE(position + 30);
-        const longueurCommentaire = tampon.readUInt16LE(position + 32);
-        const debutLocal = tampon.readUInt32LE(position + 42);
-        const nom = tampon.toString('utf-8', position + 46, position + 46 + longueurNom);
-
-        // L'entete local redonne ses propres longueurs de nom et de champ
-        // supplementaire, qui ne sont pas forcement celles du catalogue.
-        const nomLocal = tampon.readUInt16LE(debutLocal + 26);
-        const extraLocal = tampon.readUInt16LE(debutLocal + 28);
-        const debut = debutLocal + 30 + nomLocal + extraLocal;
-        const donnees = tampon.subarray(debut, debut + tailleCompressee);
-
-        fichiers.set(nom, methode === 0 ? Buffer.from(donnees) : zlib.inflateRawSync(donnees));
-        position += 46 + longueurNom + longueurExtra + longueurCommentaire;
-    }
-
-    return fichiers;
-}
-
-// Signature PK d'un entete local, d'une fin de catalogue ou d'une archive scindee
-function estArchive(tampon) {
-    return tampon.length > 4
-        && tampon[0] === 0x50 && tampon[1] === 0x4b
-        && (tampon[2] === 0x03 || tampon[2] === 0x05 || tampon[2] === 0x07);
-}
-
-module.exports = { ecrire, lire, estArchive };
+module.exports = { ecrire };
