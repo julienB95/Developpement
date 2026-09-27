@@ -35,7 +35,7 @@ Ne les affiche pas dans tes reponses et ne lis aucune autre variable du `.env`.
 3. Mets a jour et reconstruis sur le NAS, en une seule connexion :
 
    ```
-   ssh -p <NAS_PORT_SSH> <NAS_UTILISATEUR>@<NAS_HOTE> "cd <NAS_CHEMIN> && git pull --ff-only && cd application/crypto && sudo docker compose up -d --build && sudo docker compose ps"
+   ssh -p <NAS_PORT_SSH> <NAS_UTILISATEUR>@<NAS_HOTE> "cd <NAS_CHEMIN> && git pull --ff-only && cd application/crypto && sudo /usr/local/bin/docker compose up -d --build && sudo /usr/local/bin/docker compose ps"
    ```
 
    `git pull` ne touche pas au `.env` de production : il n'est pas versionne.
@@ -51,12 +51,12 @@ Ne les affiche pas dans tes reponses et ne lis aucune autre variable du `.env`.
 5. En cas d'echec a l'etape 3 ou 4, recupere les journaux et arrete-toi :
 
    ```
-   ssh -p <NAS_PORT_SSH> <NAS_UTILISATEUR>@<NAS_HOTE> "cd <NAS_CHEMIN>/application/crypto && sudo docker compose logs --tail 50 crypto"
+   ssh -p <NAS_PORT_SSH> <NAS_UTILISATEUR>@<NAS_HOTE> "cd <NAS_CHEMIN>/application/crypto && sudo /usr/local/bin/docker compose logs --tail 50 crypto"
    ```
 
 6. Resume en quelques lignes : le commit deploye, l'etat du conteneur et le code de sante.
    Signale toute anomalie sans la corriger tant que je ne l'ai pas demande.
 
 Si le schema de la base a change depuis le dernier deploiement, previens-moi :
-la migration se lance a part, `sudo docker compose run --rm crypto node application/crypto/api/migrer.js`,
+la migration se lance a part, `sudo /usr/local/bin/docker compose run --rm crypto node application/crypto/api/migrer.js`,
 et elle n'est jamais declenchee automatiquement par ce deploiement.
