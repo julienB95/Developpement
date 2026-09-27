@@ -421,8 +421,18 @@ async function creer(demandeur) {
             throw echec;
         }
 
+        // Un dossier racine qui existe peut rester fermé en écriture : sur le NAS,
+        // les ACL Synology passent avant les droits Unix affichés.
         const { nom, chemin } = await dossierLibre(debut);
-        await fs.promises.mkdir(chemin);
+        try {
+            await fs.promises.mkdir(chemin);
+        } catch (err) {
+            const echec = new Error(err.code === 'EACCES' || err.code === 'EPERM'
+                ? `Dossier de sauvegarde inaccessible en écriture : ${racine()}`
+                : `Impossible de créer le dossier de sauvegarde ${chemin} (${err.code || err.message})`);
+            echec.code = 400;
+            throw echec;
+        }
 
         const source = await copierSources(path.join(chemin, 'source'));
         const bdd = await sauvegarderBase(path.join(chemin, 'bdd'));
