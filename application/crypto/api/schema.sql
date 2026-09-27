@@ -212,6 +212,11 @@ ALTER TABLE utilisateur
 ALTER TABLE utilisateur
     ADD COLUMN IF NOT EXISTS tentatives_echouees SMALLINT NOT NULL DEFAULT 0;
 
+-- Début du blocage : il est levé de lui-même passé un délai, pour qu'un
+-- inconnu ne puisse pas verrouiller durablement un compte depuis internet.
+ALTER TABLE utilisateur
+    ADD COLUMN IF NOT EXISTS bloque_le TIMESTAMPTZ;
+
 -- Valeurs reprises par défaut à la saisie d'une opération. Facultatives :
 -- un compte qui ne les renseigne pas saisit tout à la main comme avant.
 ALTER TABLE utilisateur

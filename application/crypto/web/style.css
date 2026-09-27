@@ -871,6 +871,18 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
     border-radius: var(--rayon);
 }
 .pv-total-libelle { font-size: 13px; color: var(--encre-douce); }
+
+/* L'année en cours n'est pas close : son total est signalé comme estimé */
+.pv-etiquette {
+    display: inline-block;
+    margin-right: 8px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--accent-clair);
+    color: var(--accent-fonce);
+    font-size: 12px;
+    font-weight: 600;
+}
 .pv-total-montant { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .liste-pv { list-style: none; margin: 0; padding: 0; }
@@ -1289,7 +1301,7 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
 
 .cellule-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
-/* --- Page élargie hors connexion ------------------------------------------ */
+/* --- Page élargie hors connexion et en administration -------------------- */
 /* Sans espace connecté à afficher, les blocs défilants n'ont aucune raison
    de rester dans la colonne de lecture : ils prennent la largeur disponible,
    ce qui met simplement plus de cartes à l'écran. */

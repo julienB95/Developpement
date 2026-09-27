@@ -535,11 +535,64 @@ route('GET', '/api/crypto/operations/annees', async ({ req }) => {
 route('GET', '/api/crypto/plus-values', async ({ req, url }) => {
     const utilisateur = await exigerConnexion(req);
     const demandee = url.searchParams.get('annee');
-    const annee = demandee
-        ? exigerEntier(demandee, 'annee')
-        : Number(valeurs.jourParis(new Date()).slice(0, 4));
+    const anneeCourante = Number(valeurs.jourParis(new Date()).slice(0, 4));
+    const annee = demandee ? exigerEntier(demandee, 'annee') : anneeCourante;
 
-    return { code: 200, corps: await plusvalues.parAnnee(utilisateur.id, annee) };
+    // Les cours servent au tri, et pour l'année en cours à simuler la vente de
+    // ce qui est encore détenu : sans eux, seules les cessions réelles restent.
+    let cotees = [];
+    let marcheEur = null;
+    let coursIndisponible = null;
+    try {
+        marcheEur = await marche.cours('eur');
+        cotees = marcheEur.actifs.filter((actif) => actif.prix !== null);
+    } catch (err) {
+        console.error('Cours indisponibles pour les plus-values :', err.message);
+        coursIndisponible = err.message;
+    }
+
+    const simulation = annee === anneeCourante
+        ? {
+            cotees: marcheEur ? cotees : null,
+            source: marcheEur ? marcheEur.source : null,
+            releve_le: marcheEur ? marcheEur.releve_le : null,
+            cours_indisponible: coursIndisponible,
+        }
+        : null;
+
+    const bilan = await plusvalues.parAnnee(utilisateur.id, annee, simulation);
+
+    // Les cryptos se suivent comme dans « Mes cryptos » : par valeur détenue en
+    // euro, décroissante. Une crypto entièrement cédée, ou sans cours, finit la
+    // liste dans l'ordre alphabétique. Le produit est calculé en NUMERIC par
+    // PostgreSQL : seul le rang revient au serveur, jamais un montant en flottant.
+    if (bilan.cryptos.length > 1) {
+        const { rows } = await db.requete(
+            `WITH detention AS (
+                 SELECT o.id_crypto,
+                        c.libelle,
+                        SUM(CASE WHEN o.type = 'vente' THEN -o.quantite ELSE o.quantite END) AS quantite
+                 FROM operation o
+                 JOIN crypto c ON c.id = o.id_crypto
+                 WHERE o.utilisateur_id = $1
+                 GROUP BY o.id_crypto, c.libelle
+             ),
+             cours AS (
+                 SELECT * FROM unnest($2::text[], $3::numeric[]) AS t(id_crypto, prix)
+             )
+             SELECT d.id_crypto
+             FROM detention d
+             LEFT JOIN cours k ON k.id_crypto = d.id_crypto
+             ORDER BY CASE WHEN d.quantite > 0 THEN d.quantite * k.prix END DESC NULLS LAST, d.libelle`,
+            [utilisateur.id, cotees.map((actif) => actif.symbole), cotees.map((actif) => actif.prix)]
+        );
+
+        const rangs = new Map(rows.map((ligne, rang) => [ligne.id_crypto, rang]));
+        const rangDe = (crypto) => (rangs.has(crypto.id_crypto) ? rangs.get(crypto.id_crypto) : rows.length);
+        bilan.cryptos.sort((a, b) => rangDe(a) - rangDe(b));
+    }
+
+    return { code: 200, corps: bilan };
 });
 
 // Declaration fiscale du compte connecte : les annees de cession, puis pour
@@ -927,10 +980,20 @@ route('GET', '/api/crypto/mon-portefeuille', async ({ req }) => {
         [utilisateur.id, cotees.map((actif) => actif.symbole), cotees.map((actif) => actif.prix)]
     );
 
+    // Total du portefeuille, additionné par PostgreSQL : seules les lignes
+    // cotées y entrent, les autres sont comptées pour que l'écran le dise.
+    const valorisees = rows.filter((ligne) => ligne.total !== null).map((ligne) => ligne.total);
+    const { rows: [somme] } = await db.requete(
+        'SELECT COALESCE(SUM(v), 0)::text AS total FROM unnest($1::numeric[]) AS v',
+        [valorisees]
+    );
+
     return {
         code: 200,
         corps: {
             lignes: rows,
+            total: valorisees.length ? somme.total : null,
+            lignes_sans_cours: rows.length - valorisees.length,
             devise: 'EUR',
             source: marcheEur ? marcheEur.source : null,
             releve_le: marcheEur ? marcheEur.releve_le : null,
@@ -1086,8 +1149,51 @@ async function exigerConnexion(req) {
 
 // Blocage apres echecs repetes. Ne concerne que la connexion par mot de passe :
 // une connexion Google ne presente aucun mot de passe a deviner.
+// Le blocage est temporaire : sur un site public, n'importe qui pourrait
+// sinon verrouiller un compte en tapant son adresse avec un faux mot de passe.
 const MAX_TENTATIVES = 3;
+const DUREE_BLOCAGE_MINUTES = 15;
 const DUREE_REINITIALISATION = 60 * 60 * 1000;
+
+// Limite par adresse IP, en memoire : freine les essais en serie sur
+// plusieurs comptes, que le compteur par compte ne voit pas.
+const MAX_ECHECS_IP = 10;
+const FENETRE_ECHECS_IP = 15 * 60 * 1000;
+const echecsParIp = new Map();
+
+// L'API n'ecoute que sur la boucle locale, derriere le proxy inverse de DSM :
+// X-Real-IP, pose par le proxy, est donc fiable.
+function adresseClient(req) {
+    return req.headers['x-real-ip'] || req.socket.remoteAddress || 'inconnue';
+}
+
+function verifierLimiteIp(ip) {
+    const suivi = echecsParIp.get(ip);
+    if (!suivi) return;
+    if (Date.now() - suivi.debut > FENETRE_ECHECS_IP) {
+        echecsParIp.delete(ip);
+        return;
+    }
+    if (suivi.nombre >= MAX_ECHECS_IP) {
+        throw new ErreurClient('Trop de tentatives de connexion. Réessayez dans quelques minutes.', 429);
+    }
+}
+
+function compterEchecIp(ip) {
+    const suivi = echecsParIp.get(ip);
+    if (!suivi || Date.now() - suivi.debut > FENETRE_ECHECS_IP) {
+        echecsParIp.set(ip, { nombre: 1, debut: Date.now() });
+    } else {
+        suivi.nombre += 1;
+    }
+}
+
+setInterval(() => {
+    const maintenant = Date.now();
+    for (const [ip, suivi] of echecsParIp) {
+        if (maintenant - suivi.debut > FENETRE_ECHECS_IP) echecsParIp.delete(ip);
+    }
+}, FENETRE_ECHECS_IP).unref();
 
 const CHAMPS_COMPTE = `id, courriel, nom, prenom, est_actif, est_admin, devise,
                 autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`;
@@ -1095,14 +1201,25 @@ const CHAMPS_COMPTE = `id, courriel, nom, prenom, est_actif, est_admin, devise,
 function messageBloque() {
     return new ErreurClient(
         `Ce compte est bloqué après ${MAX_TENTATIVES} échecs de connexion. `
-        + 'Réinitialisez votre mot de passe pour le débloquer.',
+        + `Réessayez dans ${DUREE_BLOCAGE_MINUTES} minutes, ou réinitialisez votre mot de passe.`,
         403
     );
 }
 
-route('POST', '/api/crypto/connexion', async ({ corps }) => {
+route('POST', '/api/crypto/connexion', async ({ corps, req }) => {
+    const ip = adresseClient(req);
+    verifierLimiteIp(ip);
+
     const adresse = exigerCourriel(corps);
     const enClair = exigerTexte(corps, 'mot_de_passe');
+
+    // Un blocage echu est leve avant tout : le compte repart de zero
+    await db.requete(
+        `UPDATE utilisateur SET est_bloque = FALSE, tentatives_echouees = 0, bloque_le = NULL
+         WHERE courriel = $1 AND est_bloque
+           AND (bloque_le IS NULL OR bloque_le < now() - make_interval(mins => $2))`,
+        [adresse, DUREE_BLOCAGE_MINUTES]
+    );
 
     const { rows } = await db.requete(
         `SELECT ${CHAMPS_COMPTE}, tentatives_echouees, mot_de_passe_hash
@@ -1113,29 +1230,32 @@ route('POST', '/api/crypto/connexion', async ({ corps }) => {
     const ligne = rows[0];
 
     // Un compte bloque ne voit meme pas son mot de passe verifie
-    if (ligne && ligne.est_bloque) throw messageBloque();
+    if (ligne && ligne.est_bloque) {
+        compterEchecIp(ip);
+        throw messageBloque();
+    }
 
     const valide = ligne && ligne.mot_de_passe_hash
         ? await motdepasse.verifier(enClair, ligne.mot_de_passe_hash)
         : false;
 
     if (!valide) {
+        compterEchecIp(ip);
         // Le compteur n'avance que sur un compte reellement protege par mot de passe :
         // sinon le comportement observe revelerait quelles adresses existent.
+        // Les sessions ouvertes sont conservees : un inconnu qui se trompe de
+        // mot de passe ne doit pas pouvoir deconnecter le titulaire du compte.
         if (ligne && ligne.mot_de_passe_hash) {
             const { rows: apres } = await db.requete(
                 `UPDATE utilisateur
                  SET tentatives_echouees = tentatives_echouees + 1,
-                     est_bloque = (tentatives_echouees + 1 >= $2)
+                     est_bloque = (tentatives_echouees + 1 >= $2),
+                     bloque_le = CASE WHEN tentatives_echouees + 1 >= $2 THEN now() END
                  WHERE id = $1
                  RETURNING est_bloque`,
                 [ligne.id, MAX_TENTATIVES]
             );
-            if (apres[0].est_bloque) {
-                // Un compte qui vient d'etre bloque ne garde aucune session ouverte
-                await auth.supprimerSessionsUtilisateur(ligne.id);
-                throw messageBloque();
-            }
+            if (apres[0].est_bloque) throw messageBloque();
         }
         // Message identique dans tous les cas : ne revele pas si le compte existe
         throw new ErreurClient('Courriel ou mot de passe incorrect', 401);
@@ -1759,7 +1879,31 @@ async function servirFichier(chemin, res) {
 }
 
 // --- Serveur ---------------------------------------------------------------
+// En-tetes de protection poses sur toute reponse, API comme fichiers du site.
+// Google Identity Services, seul script externe, a besoin de son domaine
+// pour le script, sa feuille de style, son cadre et ses appels.
+const ENTETES_SECURITE = {
+    'Content-Security-Policy': [
+        "default-src 'self'",
+        "script-src 'self' https://accounts.google.com/gsi/client",
+        "style-src 'self' https://accounts.google.com/gsi/style",
+        "frame-src https://accounts.google.com/gsi/",
+        "connect-src 'self' https://accounts.google.com/gsi/",
+        "img-src 'self' data: https:",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ].join('; '),
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+};
+
 const serveur = http.createServer(async (req, res) => {
+    for (const [nom, valeur] of Object.entries(ENTETES_SECURITE)) res.setHeader(nom, valeur);
+
     let url;
     try {
         url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);

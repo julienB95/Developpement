@@ -199,12 +199,119 @@ async function derouler(utilisateurId) {
         });
     }
 
-    return { staking, cessions };
+    return { staking, cessions, cumul };
 }
 
-// Les cessions de l'annee demandee, regroupees par crypto
-async function parAnnee(utilisateurId, annee) {
-    const { staking, cessions } = await derouler(utilisateurId);
+// Ce que le compte detient aujourd'hui, valorise au cours du moment, dans
+// l'ordre ou la vente est simulee : la plus grosse ligne d'abord. La valeur
+// globale de chaque ligne est celle des lignes non encore vendues, elle
+// comprise : c'est la ligne 212 d'une cession qui interviendrait maintenant.
+//   $1 utilisateur   $2 identifiants des cryptos cotees   $3 leurs cours en euro
+const DETENTIONS_ACTUELLES = `
+WITH detention AS (
+    SELECT o.id_crypto, c.libelle,
+           SUM(CASE WHEN o.type = 'vente' THEN -o.quantite ELSE o.quantite END) AS quantite
+    FROM operation o
+    JOIN crypto c ON c.id = o.id_crypto
+    WHERE o.utilisateur_id = $1
+    GROUP BY o.id_crypto, c.libelle
+    HAVING SUM(CASE WHEN o.type = 'vente' THEN -o.quantite ELSE o.quantite END) > 0
+),
+cours AS (
+    SELECT * FROM unnest($2::text[], $3::numeric[]) AS t(id_crypto, prix)
+)
+SELECT d.id_crypto,
+       d.libelle,
+       d.quantite::text AS quantite,
+       (d.quantite * k.prix)::text AS valeur,
+       (SUM(d.quantite * k.prix) OVER (
+            ORDER BY d.quantite * k.prix DESC NULLS LAST, d.libelle
+            ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING))::text AS valeur_globale,
+       (now() AT TIME ZONE 'Europe/Paris')::date AS jour
+FROM detention d
+LEFT JOIN cours k ON k.id_crypto = d.id_crypto
+ORDER BY d.quantite * k.prix DESC NULLS LAST, d.libelle`;
+
+// Prix total d'acquisition du portefeuille a ce jour, selon la meme regle que
+// pour une cession reelle.   $1 utilisateur   $2 staking compte a sa valeur
+const ACQUISITION_ACTUELLE = `
+SELECT COALESCE(SUM(o.quantite * o.prix_unitaire + o.frais)
+                FILTER (WHERE o.prix_unitaire IS NOT NULL), 0)::text AS acquisition,
+       (count(*) FILTER (WHERE o.prix_unitaire IS NULL))::int AS achats_sans_prix
+FROM operation o
+WHERE o.utilisateur_id = $1
+  AND (o.type = 'achat' OR (o.type = 'staking' AND $2))`;
+
+// Vente simulee de tout ce qui est detenu, au cours du moment et sans frais,
+// a la suite des cessions reelles : le cumul des fractions reprend la ou elles
+// l'ont laisse. Ce n'est qu'une estimation — les cours bougent, et d'autres
+// operations peuvent intervenir d'ici la fin de l'annee.
+async function simuler(utilisateurId, staking, cumulDepart, cotees) {
+    const { rows: detentions } = await db.requete(DETENTIONS_ACTUELLES, [
+        utilisateurId, cotees.map((actif) => actif.symbole), cotees.map((actif) => actif.prix),
+    ]);
+    const { rows: [acquis] } = await db.requete(
+        ACQUISITION_ACTUELLE, [utilisateurId, staking.convention === 'valeur_recue']
+    );
+
+    // Une crypto sans cours ne peut pas etre vendue en simulation, et fausse
+    // la valeur globale des autres : la reserve le dit sur chaque ligne.
+    const nonCotees = detentions.filter((d) => d.valeur === null).length;
+    const horodatage = new Date().toISOString();
+
+    let cumul = cumulDepart;
+    const lignes = [];
+
+    for (const detention of detentions) {
+        if (detention.valeur === null) continue;
+
+        const { rows } = await db.requete(IMPUTATION, [
+            acquis.acquisition, cumul, detention.valeur_globale,
+            detention.valeur, detention.valeur,
+        ]);
+
+        const motifs = [];
+        if (acquis.achats_sans_prix > 0) {
+            motifs.push(`${acquis.achats_sans_prix} ligne(s) sans prix d'acquisition`);
+        }
+        if (nonCotees > 0) {
+            motifs.push(`${nonCotees} crypto(s) détenue(s) sans cours actuel`);
+        }
+
+        let plusValue = null;
+        if (rows[0].fraction !== null) {
+            plusValue = rows[0].plus_value;
+            cumul = rows[0].cumul;
+        } else if (!motifs.length) {
+            motifs.push('valeur globale du portefeuille indisponible');
+        }
+
+        lignes.push({
+            id: null,
+            horodatage,
+            jour: detention.jour,
+            id_crypto: detention.id_crypto,
+            libelle: detention.libelle,
+            quantite: detention.quantite,
+            prix_cession: detention.valeur,
+            valeur_globale: detention.valeur_globale,
+            plus_value: plusValue,
+            complet: plusValue !== null && motifs.length === 0,
+            reserves: motifs,
+            simulee: true,
+        });
+    }
+
+    return lignes;
+}
+
+// Les cessions de l'annee demandee, regroupees par crypto. Pour l'annee en
+// cours, `simulation` porte les cours du moment ({ cotees, releve_le, source }) :
+// ce qui est encore detenu est alors compte comme vendu aujourd'hui, et le
+// resultat est une estimation. Sans cours, `simulation.cours_indisponible`
+// en donne la raison et seules les cessions reelles sont retenues.
+async function parAnnee(utilisateurId, annee, simulation) {
+    const { staking, cessions, cumul } = await derouler(utilisateurId);
     const retenues = cessions
         .filter((c) => c.annee === annee)
         .map((c) => ({
@@ -219,10 +326,22 @@ async function parAnnee(utilisateurId, annee) {
             plus_value: c.plus_value,
             complet: c.complet,
             reserves: c.reserves,
+            simulee: false,
         }));
+
+    if (simulation && simulation.cotees) {
+        retenues.push(...await simuler(utilisateurId, staking, cumul, simulation.cotees));
+    }
 
     const resultat = await regrouper(annee, retenues, await bornes(utilisateurId));
     resultat.staking = staking;
+    resultat.estimation = simulation
+        ? {
+            source: simulation.source || null,
+            releve_le: simulation.releve_le || null,
+            cours_indisponible: simulation.cours_indisponible || null,
+        }
+        : null;
     return resultat;
 }
 
@@ -356,7 +475,8 @@ async function regrouper(annee, retenues, encadrement) {
         cryptos.push({
             id_crypto: groupe.id_crypto,
             libelle: groupe.libelle,
-            cessions: groupe.lignes.length,
+            cessions: groupe.lignes.filter((l) => !l.simulee).length,
+            vente_simulee: groupe.lignes.some((l) => l.simulee),
             prix_cession: await somme(groupe.lignes.map((l) => l.prix_cession).filter(Boolean)),
             plus_value: calculees.length ? await somme(calculees.map((l) => l.plus_value)) : null,
             complet: groupe.lignes.every((l) => l.complet),
@@ -373,7 +493,8 @@ async function regrouper(annee, retenues, encadrement) {
         devise: 'EUR',
         cryptos,
         total: {
-            cessions: retenues.length,
+            cessions: retenues.filter((l) => !l.simulee).length,
+            ventes_simulees: retenues.filter((l) => l.simulee).length,
             prix_cession: await somme(retenues.map((l) => l.prix_cession).filter(Boolean)),
             plus_value: calculees.length ? await somme(calculees.map((l) => l.plus_value)) : null,
         },

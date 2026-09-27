@@ -23,10 +23,12 @@
     // --- Cryptos detenues -------------------------------------------------
     var listeDetentions = document.getElementById('liste-detentions');
     var detentionsReleve = document.getElementById('detentions-releve');
+    var detentionsTotal = document.getElementById('detentions-total');
 
     function messageDetentions(texte) {
         C.vider(listeDetentions);
         if (detentionsReleve) detentionsReleve.hidden = true;
+        if (detentionsTotal) detentionsTotal.hidden = true;
         var item = document.createElement('li');
         item.className = 'detention-vide';
         item.textContent = texte;
@@ -39,6 +41,7 @@
         }
 
         C.vider(listeDetentions);
+        rendreTotalDetentions(donnees);
 
         donnees.lignes.forEach(function (ligne) {
             // Toute la ligne mène à la page détaillée de la crypto
@@ -97,6 +100,24 @@
             ? 'Cours ' + donnees.source + ' du ' + C.formaterDateHeure(donnees.releve_le)
             : 'Cours indisponibles' + (donnees.cours_indisponible ? ' : ' + donnees.cours_indisponible : '');
         detentionsReleve.hidden = false;
+    }
+
+    // Valeur totale du portefeuille, en tête du bloc. Une crypto sans cours
+    // n'y entre pas : le libellé le dit plutôt que de présenter un total complet.
+    function rendreTotalDetentions(donnees) {
+        if (!detentionsTotal) return;
+
+        var nombre = donnees.lignes.length;
+        var libelle = nombre > 1 ? nombre + ' cryptos' : '1 crypto';
+        if (donnees.lignes_sans_cours) {
+            libelle += ' · ' + donnees.lignes_sans_cours + ' sans cours, hors total';
+        }
+
+        document.getElementById('detentions-total-libelle').textContent = libelle;
+        document.getElementById('detentions-total-montant').textContent = donnees.total === null
+            ? '—'
+            : C.formaterMontant(donnees.total, 'EUR');
+        detentionsTotal.hidden = false;
     }
 
     function chargerDetentions() {
@@ -158,6 +179,14 @@
         return String(montant).charAt(0) === '-' ? 'pv-perte' : 'pv-gain';
     }
 
+    // « 2 cessions », « vente simulée », « 1 cession + 3 ventes simulées »
+    function decompte(cessions, simulees) {
+        var parties = [];
+        if (cessions) parties.push(cessions > 1 ? cessions + ' cessions' : '1 cession');
+        if (simulees) parties.push(simulees > 1 ? simulees + ' ventes simulées' : 'vente simulée');
+        return parties.join(' + ');
+    }
+
     function ligneCrypto(crypto) {
         var item = document.createElement('li');
         item.className = 'pv-ligne';
@@ -172,8 +201,9 @@
 
         var detail = document.createElement('span');
         detail.className = 'pv-detail';
-        detail.textContent = (crypto.cessions > 1 ? crypto.cessions + ' cessions' : '1 cession')
-            + ' · ' + formaterEuros(crypto.prix_cession) + ' cédés';
+        detail.textContent = decompte(crypto.cessions, crypto.vente_simulee ? 1 : 0)
+            + ' · ' + formaterEuros(crypto.prix_cession)
+            + (crypto.vente_simulee ? ' au cours actuel' : ' cédés');
 
         texte.appendChild(nom);
         texte.appendChild(detail);
@@ -209,7 +239,11 @@
         pvSuivant.disabled = donnees.annee >= ANNEE_COURANTE;
 
         if (!donnees.cryptos.length) {
-            return messagePlusValues('Aucune cession en ' + donnees.annee + '.');
+            messagePlusValues(donnees.estimation
+                ? 'Aucune cession en ' + donnees.annee + ' et aucune crypto détenue à simuler.'
+                : 'Aucune cession en ' + donnees.annee + '.');
+            if (donnees.estimation) pvContenu.appendChild(noteEstimation(donnees.estimation));
+            return;
         }
 
         C.vider(pvContenu);
@@ -219,9 +253,15 @@
 
         var libelle = document.createElement('span');
         libelle.className = 'pv-total-libelle';
-        libelle.textContent = donnees.total.cessions > 1
-            ? donnees.total.cessions + ' cessions'
-            : '1 cession';
+        libelle.textContent = decompte(donnees.total.cessions, donnees.total.ventes_simulees);
+
+        // L'année en cours n'est pas close : son chiffre n'est qu'une estimation
+        if (donnees.estimation) {
+            var etiquette = document.createElement('span');
+            etiquette.className = 'pv-etiquette';
+            etiquette.textContent = 'Estimées';
+            libelle.insertBefore(etiquette, libelle.firstChild);
+        }
 
         var montantTotal = document.createElement('span');
         montantTotal.className = 'pv-total-montant ' + classePlusValue(donnees.total.plus_value);
@@ -238,6 +278,8 @@
         });
         pvContenu.appendChild(liste);
 
+        if (donnees.estimation) pvContenu.appendChild(noteEstimation(donnees.estimation));
+
         if (!donnees.complet) {
             var alerte = document.createElement('p');
             alerte.className = 'pv-reserve';
@@ -250,6 +292,23 @@
         if (donnees.staking && donnees.staking.operations) {
             pvContenu.appendChild(noteStaking(donnees.staking.convention));
         }
+    }
+
+    // Les cours sont volatils : la note dit sur quel relevé repose la simulation
+    function noteEstimation(estimation) {
+        var note = document.createElement('p');
+        if (estimation.releve_le) {
+            note.className = 'aide pv-convention';
+            note.textContent = 'Estimation : les cryptos détenues sont comptées comme vendues au cours '
+                + estimation.source + ' du ' + C.formaterDateHeure(estimation.releve_le)
+                + '. Les montants varieront avec les cours et les opérations d’ici la fin de l’année.';
+        } else {
+            note.className = 'pv-reserve';
+            note.textContent = 'Vente simulée impossible, cours indisponibles'
+                + (estimation.cours_indisponible ? ' : ' + estimation.cours_indisponible : '')
+                + '. Seules les cessions réelles sont comptées.';
+        }
+        return note;
     }
 
     function noteStaking(convention) {
@@ -498,7 +557,8 @@
     function appliquerEtat(compte) {
         // Hors connexion, la page se limite aux blocs defilants : ils peuvent
         // occuper toute la largeur disponible plutot que la colonne de lecture.
-        document.body.classList.toggle('page-large', !compte);
+        // Un administrateur profite lui aussi de toute la largeur de l'ecran.
+        document.body.classList.toggle('page-large', !compte || !!compte.est_admin);
 
         // La devise du compte fait foi des la connexion, avant tout affichage de montant
         if (compte) C.definirDevise(compte.devise, { enregistrer: false });
