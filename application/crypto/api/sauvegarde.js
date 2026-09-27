@@ -521,4 +521,35 @@ async function lister() {
     return { racine: dossier, sauvegardes };
 }
 
-module.exports = { creer, lister, racine };
+// --- Suppression -----------------------------------------------------------
+// Le nom doit avoir la forme exacte d'un dossier de sauvegarde : c'est ce qui
+// interdit de remonter hors de la racine ou d'y viser un autre dossier.
+async function supprimer(nom) {
+    if (typeof nom !== 'string' || !MOTIF_DOSSIER.test(nom)) {
+        const err = new Error('Nom de sauvegarde invalide');
+        err.code = 400;
+        throw err;
+    }
+    // Une sauvegarde en cours d'écriture ne se supprime pas sous ses pieds
+    if (enCours) {
+        const err = new Error('Une sauvegarde est en cours : réessayez une fois terminée');
+        err.code = 409;
+        throw err;
+    }
+
+    const chemin = path.join(racine(), nom);
+    try {
+        const etat = await fs.promises.stat(chemin);
+        if (!etat.isDirectory()) throw Object.assign(new Error(), { code: 'ENOENT' });
+    } catch (err) {
+        if (err.code !== 'ENOENT') throw err;
+        const absente = new Error('Sauvegarde introuvable');
+        absente.code = 404;
+        throw absente;
+    }
+
+    await fs.promises.rm(chemin, { recursive: true });
+    return { dossier: nom };
+}
+
+module.exports = { creer, lister, supprimer, racine };

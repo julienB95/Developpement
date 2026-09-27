@@ -1212,6 +1212,42 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
 
 .bouton-petit { padding: 5px 12px; font-size: 14px; }
 
+/* Bouton réduit à une icône : son libellé passe par aria-label et l'infobulle */
+.bouton-icone {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: var(--encre-douce);
+    cursor: pointer;
+}
+.bouton-icone svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.bouton-icone:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.bouton-icone-danger:hover { color: var(--alerte); background: #fdeeed; border-color: #f2c6c3; }
+
+/* Masqué à l'écran, lu par les lecteurs d'écran */
+.visuellement-masque {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
 .actions-dialogue { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
 .actions-dialogue .bouton-danger { margin-right: auto; }
 

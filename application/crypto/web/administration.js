@@ -1178,6 +1178,36 @@
                 infobulle + " — l'archive dépassait la taille autorisée");
     }
 
+    // Icône de corbeille dessinée en SVG : aucun fichier image à charger,
+    // et le trait suit la couleur du bouton au survol.
+    var SVG = 'http://www.w3.org/2000/svg';
+    function boutonCorbeille(libelle, action) {
+        var bouton = document.createElement('button');
+        bouton.type = 'button';
+        bouton.className = 'bouton-icone bouton-icone-danger';
+        bouton.title = libelle;
+        bouton.setAttribute('aria-label', libelle);
+
+        var icone = document.createElementNS(SVG, 'svg');
+        icone.setAttribute('viewBox', '0 0 24 24');
+        icone.setAttribute('aria-hidden', 'true');
+        [
+            'M4 7h16',
+            'M10 11v6',
+            'M14 11v6',
+            'M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12',
+            'M9 7V4h6v3',
+        ].forEach(function (trace) {
+            var chemin = document.createElementNS(SVG, 'path');
+            chemin.setAttribute('d', trace);
+            icone.appendChild(chemin);
+        });
+        bouton.appendChild(icone);
+
+        bouton.addEventListener('click', action);
+        return bouton;
+    }
+
     function identiteSauvegarde(ligne) {
         var conteneur = document.createElement('div');
 
@@ -1201,7 +1231,7 @@
         if (!lignes.length) {
             var vide = document.createElement('tr');
             var celluleVide = document.createElement('td');
-            celluleVide.colSpan = 5;
+            celluleVide.colSpan = 6;
             celluleVide.className = 'espace-vide';
             celluleVide.textContent = 'Aucune sauvegarde pour le moment.';
             vide.appendChild(celluleVide);
@@ -1226,6 +1256,24 @@
             tr.appendChild(archive);
 
             tr.appendChild(cellule(etatCourriel(ligne)));
+
+            var actions = document.createElement('td');
+            actions.className = 'cellule-actions';
+            actions.appendChild(boutonCorbeille('Supprimer la sauvegarde ' + ligne.dossier, function () {
+                confirmerSuppression(
+                    'la sauvegarde du ' + C.formaterDateHeure(ligne.horodatage),
+                    function () {
+                        return C.appeler('/administration/sauvegardes/' + encodeURIComponent(ligne.dossier),
+                            { method: 'DELETE' });
+                    },
+                    function () {
+                        resultatSauvegarde.hidden = true;
+                        return chargerSauvegardes();
+                    },
+                    ['Le dossier ' + ligne.dossier + ' et son archive seront effacés du disque.']
+                );
+            }));
+            tr.appendChild(actions);
 
             corpsSauvegardes.appendChild(tr);
         });

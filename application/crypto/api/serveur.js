@@ -1802,6 +1802,17 @@ route('POST', '/api/crypto/administration/sauvegardes', async ({ req }) => {
     }
 });
 
+route('DELETE', '/api/crypto/administration/sauvegardes/:nom', async ({ req, params }) => {
+    await exigerAdmin(req);
+
+    try {
+        return { code: 200, corps: await sauvegarde.supprimer(params.nom) };
+    } catch (err) {
+        if ([400, 404, 409].includes(err.code)) throw new ErreurClient(err.message, err.code);
+        throw err;
+    }
+});
+
 
 // Suppression d'un compte. Les sessions et les operations partent en cascade
 // par le schema ; cascade=1 atteste que l'administrateur en a ete averti.
