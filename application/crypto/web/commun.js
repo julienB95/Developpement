@@ -60,6 +60,30 @@
             });
     }
 
+    // Dates recues en UTC, affichees dans le fuseau du navigateur
+    function dateHeure(iso) {
+        var date = new Date(iso);
+        if (isNaN(date.getTime())) return null;
+        return date.toLocaleDateString('fr-FR') + ' à '
+            + date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function afficherVersion(bloc, infos) {
+        vider(bloc);
+        var dateVersion = infos.date_version ? dateHeure(infos.date_version) : null;
+        var deploiement = infos.deploye_le ? dateHeure(infos.deploye_le) : null;
+
+        var ligneVersion = document.createElement('p');
+        ligneVersion.textContent = 'Version : ' + (dateVersion || 'inconnue')
+            + (infos.commit ? ' (' + infos.commit + ')' : '');
+
+        var ligneDeploiement = document.createElement('p');
+        ligneDeploiement.textContent = 'Déployé le : ' + (deploiement || 'non déployé');
+
+        bloc.appendChild(ligneVersion);
+        bloc.appendChild(ligneDeploiement);
+    }
+
     // Remplit #bloc-compte : bouton de connexion, ou pastille et menu du compte connecte
     function afficherCompte(compte, options) {
         options = options || {};
@@ -145,10 +169,29 @@
         });
         menu.appendChild(deconnexion);
 
+        var version = document.createElement('div');
+        version.className = 'menu-version';
+        menu.appendChild(version);
+
+        // Lue a la premiere ouverture seulement : la version ne change pas
+        // tant que la page reste ouverte.
+        var versionChargee = false;
+        function chargerVersion() {
+            if (versionChargee) return;
+            versionChargee = true;
+            appeler('/version')
+                .then(function (infos) { afficherVersion(version, infos); })
+                .catch(function (err) {
+                    versionChargee = false;
+                    version.textContent = 'Version indisponible : ' + err.message;
+                });
+        }
+
         pastille.addEventListener('click', function (evenement) {
             evenement.stopPropagation();
             menu.hidden = !menu.hidden;
             pastille.setAttribute('aria-expanded', String(!menu.hidden));
+            if (!menu.hidden) chargerVersion();
         });
 
         document.addEventListener('click', function (evenement) {

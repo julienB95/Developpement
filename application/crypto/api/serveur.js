@@ -1,6 +1,7 @@
 // API de l'application crypto - Node natif + PostgreSQL (NAS Synology)
 const http = require('http');
 const crypto = require('crypto');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const db = require('../../_commun/api/db');
@@ -110,6 +111,36 @@ function route(methode, motif, gestionnaire) {
 route('GET', '/api/crypto/sante', async () => {
     const { rows } = await db.requete('SELECT now() AS horodatage');
     return { code: 200, corps: { statut: 'ok', horodatage: rows[0].horodatage } };
+});
+
+// --- Version ---------------------------------------------------------------
+// En production, l'image n'embarque pas le depot git : la commande de
+// deploiement transmet le commit, sa date et l'instant du deploiement en
+// arguments de construction. Sur le poste, la version se lit dans git et
+// le site n'a pas de date de deploiement.
+function lireGit(args) {
+    try {
+        return execFileSync('git', args, {
+            cwd: path.join(__dirname, '..', '..', '..'),
+            encoding: 'utf8',
+            timeout: 5000,
+            stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim() || null;
+    } catch (err) {
+        console.error(`Version du site illisible dans git (${err.code || err.message})`);
+        return null;
+    }
+}
+
+const VERSION = {
+    commit: process.env.VERSION_COMMIT || lireGit(['rev-parse', '--short', 'HEAD']),
+    date_version: process.env.VERSION_DATE || lireGit(['log', '-1', '--format=%cI']),
+    deploye_le: process.env.DEPLOYE_LE || null,
+};
+
+route('GET', '/api/crypto/version', async ({ req }) => {
+    await exigerConnexion(req);
+    return { code: 200, corps: VERSION };
 });
 
 // Reglages publics dont l'interface a besoin. Aucun secret ici :

@@ -35,10 +35,13 @@ Ne les affiche pas dans tes reponses et ne lis aucune autre variable du `.env`.
 3. Mets a jour et reconstruis sur le NAS, en une seule connexion :
 
    ```
-   ssh -p <NAS_PORT_SSH> <NAS_UTILISATEUR>@<NAS_HOTE> "cd <NAS_CHEMIN> && git pull --ff-only && cd application/crypto && sudo /usr/local/bin/docker compose up -d --build && sudo /usr/local/bin/docker compose ps"
+   ssh -p <NAS_PORT_SSH> <NAS_UTILISATEUR>@<NAS_HOTE> "cd <NAS_CHEMIN> && git pull --ff-only && cd application/crypto && sudo /usr/local/bin/docker compose build --build-arg VERSION_COMMIT=\$(git rev-parse --short HEAD) --build-arg VERSION_DATE=\$(git log -1 --format=%cI) --build-arg DEPLOYE_LE=\$(date -u +%Y-%m-%dT%H:%M:%SZ) && sudo /usr/local/bin/docker compose up -d && sudo /usr/local/bin/docker compose ps"
    ```
 
    `git pull` ne touche pas au `.env` de production : il n'est pas versionne.
+   Les `\$(...)` doivent etre evalues sur le NAS, pas sur le poste : ils donnent la version
+   et la date de deploiement affichees dans le menu du compte. `sudo` ne transmet pas
+   l'environnement, d'ou les `--build-arg` plutot que des variables exportees.
 
 4. Controle la sante du site, toujours par SSH :
 

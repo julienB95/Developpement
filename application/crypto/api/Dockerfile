@@ -20,6 +20,16 @@ ENV NODE_ENV=production \
     CRYPTO_API_HOST=0.0.0.0 \
     CRYPTO_API_PORT=9998
 
+# Version affichee dans le menu du compte, transmise par la commande de
+# deploiement : l'image n'embarque pas le depot git. Placee en fin de fichier,
+# elle ne fait reconstruire que cette derniere couche.
+ARG VERSION_COMMIT=
+ARG VERSION_DATE=
+ARG DEPLOYE_LE=
+ENV VERSION_COMMIT=$VERSION_COMMIT \
+    VERSION_DATE=$VERSION_DATE \
+    DEPLOYE_LE=$DEPLOYE_LE
+
 EXPOSE 9998
 
 USER node
