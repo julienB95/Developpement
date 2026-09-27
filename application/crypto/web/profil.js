@@ -20,7 +20,25 @@
         devise: document.getElementById('devise'),
         plateforme_defaut: document.getElementById('plateforme_defaut'),
         staking_acquisition: document.getElementById('staking_acquisition'),
+        mot_de_passe_actuel: document.getElementById('mot_de_passe_actuel'),
     };
+    var blocMotDePasseActuel = document.getElementById('bloc-mot-de-passe-actuel');
+
+    // Adresse enregistree : le mot de passe actuel n'est demande que pour en changer
+    var adresseEnregistree = '';
+
+    function adresseSaisie() {
+        return champs.courriel.value.trim().toLowerCase();
+    }
+
+    function suivreChangementAdresse() {
+        var change = adresseSaisie() !== adresseEnregistree;
+        blocMotDePasseActuel.hidden = !change;
+        champs.mot_de_passe_actuel.required = change;
+        if (!change) champs.mot_de_passe_actuel.value = '';
+    }
+
+    champs.courriel.addEventListener('input', suivreChangementAdresse);
 
     // Retire les zeros de fin sans passer par un flottant
     function versChampDecimal(valeur) {
@@ -65,6 +83,9 @@
         champs.prenom.value = compte.prenom || '';
         champs.nom.value = compte.nom || '';
         champs.courriel.value = compte.courriel || '';
+        adresseEnregistree = (compte.courriel || '').toLowerCase();
+        champs.mot_de_passe_actuel.value = '';
+        suivreChangementAdresse();
         champs.devise.value = compte.devise || 'EUR';
         champs.plateforme_defaut.value = compte.plateforme_defaut || '';
         champs.staking_acquisition.value = compte.staking_acquisition || 'nulle';
@@ -83,7 +104,7 @@
         var corps = {
             prenom: champs.prenom.value.trim(),
             nom: champs.nom.value.trim(),
-            courriel: champs.courriel.value.trim().toLowerCase(),
+            courriel: adresseSaisie(),
             devise: champs.devise.value,
             plateforme_defaut: champs.plateforme_defaut.value || null,
             staking_acquisition: champs.staking_acquisition.value,
@@ -91,6 +112,13 @@
 
         if (!corps.prenom || !corps.nom) return afficherErreur('Renseignez votre prénom et votre nom.');
         if (!corps.courriel) return afficherErreur('Renseignez votre adresse de courriel.');
+
+        if (corps.courriel !== adresseEnregistree) {
+            if (!champs.mot_de_passe_actuel.value) {
+                return afficherErreur("Saisissez votre mot de passe actuel pour changer d'adresse.");
+            }
+            corps.mot_de_passe_actuel = champs.mot_de_passe_actuel.value;
+        }
 
         bouton.disabled = true;
         C.appeler('/moi', { method: 'PUT', corps: corps })
@@ -105,6 +133,8 @@
                 afficherSucces('Profil enregistré.');
             })
             .catch(function (err) {
+                // Le mot de passe ne reste pas dans la page apres un refus
+                champs.mot_de_passe_actuel.value = '';
                 if (err.code === 409) {
                     return afficherErreur('Cette adresse de courriel est déjà utilisée par un autre compte.');
                 }

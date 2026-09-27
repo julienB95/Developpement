@@ -42,7 +42,9 @@ function analyser(xml, flux) {
     for (const bloc of blocs) {
         const titre = extraire(bloc, 'title');
         const lien = extraire(bloc, 'link');
-        if (!titre || !lien) continue;
+        // Un flux compromis pourrait glisser un lien javascript: ou data: :
+        // seules les adresses web sont reprises.
+        if (!titre || !/^https?:\/\//i.test(lien)) continue;
 
         const date = new Date(extraire(bloc, 'pubDate') || extraire(bloc, 'dc:date'));
 

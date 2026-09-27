@@ -175,13 +175,19 @@
         return carte;
     }
 
+    // Filet de sécurité : l'API ne garde déjà que les adresses web, un lien
+    // d'une autre forme n'est de toute façon jamais posé sur la page.
+    function adresseWeb(lien) {
+        return /^https?:\/\//i.test(String(lien || '')) ? lien : '#';
+    }
+
     function carteActualite(article) {
         var carte = document.createElement('article');
         carte.className = 'carte-actu';
 
         var lien = document.createElement('a');
         lien.className = 'carte-actu-titre';
-        lien.href = article.lien;
+        lien.href = adresseWeb(article.lien);
         lien.target = '_blank';
         lien.rel = 'noopener noreferrer';
         lien.textContent = article.titre;
@@ -334,7 +340,7 @@
             var item = document.createElement('li');
 
             var lien = document.createElement('a');
-            lien.href = article.lien;
+            lien.href = adresseWeb(article.lien);
             lien.target = '_blank';
             lien.rel = 'noopener noreferrer';
             lien.textContent = article.titre;

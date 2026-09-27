@@ -1157,17 +1157,40 @@ function adresseClient(req) {
 
 // Le scrypt occupe les threads de Node : au-dela de ce nombre de verifications
 // simultanees, une rafale venue de nombreuses adresses ralentirait tout le site.
+// La place est prise avant le premier await : le controle ne se franchit pas
+// a plusieurs en meme temps.
 const MAX_VERIFICATIONS_SIMULTANEES = 8;
 let verificationsEnCours = 0;
+
+async function sousPlafond(travail) {
+    if (verificationsEnCours >= MAX_VERIFICATIONS_SIMULTANEES) {
+        throw new ErreurClient('Serveur occupé, réessayez dans un instant.', 503);
+    }
+    verificationsEnCours += 1;
+    try {
+        return await travail();
+    } finally {
+        verificationsEnCours -= 1;
+    }
+}
+
+// Empreinte d'un mot de passe que personne ne connait, aux memes parametres
+// qu'une vraie : une adresse sans compte coute alors le meme scrypt qu'une
+// adresse existante, et le delai de reponse ne trahit rien.
+const EMPREINTE_FACTICE = motdepasse.hacher(crypto.randomBytes(16).toString('hex'));
+EMPREINTE_FACTICE.catch((err) => console.error('Empreinte factice de connexion :', err));
 
 const CHAMPS_COMPTE = `id, courriel, nom, prenom, est_actif, est_admin, devise,
                 autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`;
 
-function messageBloque() {
+// Une seule reponse pour tout echec : adresse inconnue, mauvais mot de passe,
+// compte bloque ou desactive. Toute difference dirait quelles adresses existent,
+// ou confirmerait un mot de passe. Le titulaire est quand meme prevenu du blocage.
+function echecConnexion() {
     return new ErreurClient(
-        `Ce compte est bloqué après ${MAX_TENTATIVES} échecs de connexion. `
-        + `Réessayez dans ${DUREE_BLOCAGE_MINUTES} minutes, ou réinitialisez votre mot de passe.`,
-        403
+        `Courriel ou mot de passe incorrect. Après ${MAX_TENTATIVES} échecs, `
+        + `le compte est bloqué ${DUREE_BLOCAGE_MINUTES} minutes.`,
+        401
     );
 }
 
@@ -1178,61 +1201,53 @@ route('POST', '/api/crypto/connexion', async ({ corps, req }) => {
     const adresse = exigerCourriel(corps);
     const enClair = exigerTexte(corps, 'mot_de_passe');
 
-    // Reserve avant le premier await, comme l'essai IP
-    if (verificationsEnCours >= MAX_VERIFICATIONS_SIMULTANEES) {
-        throw new ErreurClient('Serveur occupé, réessayez dans un instant.', 503);
-    }
-    verificationsEnCours += 1;
+    const { ligne, valide } = await sousPlafond(async () => {
+        // Sans attente d'ecriture sur disque, un compteur qui avance coute le
+        // meme delai qu'une adresse inconnue, qui n'ecrit rien : le temps de
+        // reponse ne distingue plus les deux. En cas de panne de la base dans
+        // la fraction de seconde qui suit, un essai pourrait ne pas etre compte.
+        const rows = await db.transaction(async (client) => {
+            await client.query('SET LOCAL synchronous_commit TO OFF');
 
-    let ligne;
-    let valide;
-    try {
-        // Un blocage echu est leve avant tout : le compte repart de zero
-        await db.requete(
-            `UPDATE utilisateur SET est_bloque = FALSE, tentatives_echouees = 0, bloque_le = NULL
-             WHERE courriel = $1 AND est_bloque
-               AND (bloque_le IS NULL OR bloque_le < now() - make_interval(mins => $2))`,
-            [adresse, DUREE_BLOCAGE_MINUTES]
-        );
-
-        // L'essai est compte avant la verification, en une seule requete :
-        // PostgreSQL verrouille la ligne, chaque requete simultanee recoit donc
-        // son propre compteur, et au plus MAX_TENTATIVES passent au scrypt.
-        // Le compteur n'avance que sur un compte reellement protege par mot de
-        // passe : sinon le comportement observe revelerait quelles adresses existent.
-        const { rows } = await db.requete(
-            `UPDATE utilisateur
-             SET tentatives_echouees = tentatives_echouees + 1,
-                 est_bloque = (tentatives_echouees + 1 >= $2),
-                 bloque_le = CASE WHEN tentatives_echouees + 1 >= $2 THEN now() ELSE bloque_le END
-             WHERE courriel = $1 AND mot_de_passe_hash IS NOT NULL AND NOT est_bloque
-             RETURNING ${CHAMPS_COMPTE}, mot_de_passe_hash`,
-            [adresse, MAX_TENTATIVES]
-        );
-        ligne = rows[0];
-
-        if (!ligne) {
-            // Un compte bloque ne voit meme pas son mot de passe verifie
-            const { rows: bloque } = await db.requete(
-                'SELECT 1 FROM utilisateur WHERE courriel = $1 AND est_bloque',
-                [adresse]
+            // Un blocage echu est leve avant tout : le compte repart de zero
+            await client.query(
+                `UPDATE utilisateur SET est_bloque = FALSE, tentatives_echouees = 0, bloque_le = NULL
+                 WHERE courriel = $1 AND est_bloque
+                   AND (bloque_le IS NULL OR bloque_le < now() - make_interval(mins => $2))`,
+                [adresse, DUREE_BLOCAGE_MINUTES]
             );
-            if (bloque.length) throw messageBloque();
-            // Message identique dans tous les cas : ne revele pas si le compte existe
-            throw new ErreurClient('Courriel ou mot de passe incorrect', 401);
-        }
 
-        valide = await motdepasse.verifier(enClair, ligne.mot_de_passe_hash);
-    } finally {
-        verificationsEnCours -= 1;
-    }
+            // L'essai est compte avant la verification, en une seule requete :
+            // PostgreSQL verrouille la ligne, chaque requete simultanee recoit donc
+            // son propre compteur, et au plus MAX_TENTATIVES passent au scrypt.
+            // Le compteur n'avance que sur un compte reellement protege par mot de
+            // passe : sinon le comportement observe revelerait quelles adresses existent.
+            const resultat = await client.query(
+                `UPDATE utilisateur
+                 SET tentatives_echouees = tentatives_echouees + 1,
+                     est_bloque = (tentatives_echouees + 1 >= $2),
+                     bloque_le = CASE WHEN tentatives_echouees + 1 >= $2 THEN now() ELSE bloque_le END
+                 WHERE courriel = $1 AND mot_de_passe_hash IS NOT NULL AND NOT est_bloque
+                 RETURNING ${CHAMPS_COMPTE}, mot_de_passe_hash`,
+                [adresse, MAX_TENTATIVES]
+            );
+            return resultat.rows;
+        });
+
+        // Adresse inconnue, compte sans mot de passe ou bloque : le scrypt
+        // tourne quand meme, sur l'empreinte factice, et son resultat est ignore.
+        if (!rows.length) {
+            await motdepasse.verifier(enClair, await EMPREINTE_FACTICE);
+            return { ligne: null, valide: false };
+        }
+        return { ligne: rows[0], valide: await motdepasse.verifier(enClair, rows[0].mot_de_passe_hash) };
+    });
 
     // Les sessions ouvertes sont conservees : un inconnu qui se trompe de
     // mot de passe ne doit pas pouvoir deconnecter le titulaire du compte.
-    if (!valide) {
-        if (ligne.est_bloque) throw messageBloque();
-        throw new ErreurClient('Courriel ou mot de passe incorrect', 401);
-    }
+    // Un compte desactive echoue comme les autres, meme avec le bon mot de
+    // passe : son compteur n'est pas remis a zero et l'essai IP reste compte.
+    if (!valide || !ligne.est_actif) throw echecConnexion();
 
     // Le bon mot de passe efface le compteur, y compris le blocage que son
     // propre essai venait de poser s'il etait le dernier autorise.
@@ -1244,8 +1259,6 @@ route('POST', '/api/crypto/connexion', async ({ corps, req }) => {
     // Une connexion reussie rend son essai, sans effacer les autres : posseder
     // un compte valide ne doit pas permettre de remettre son compteur a zero.
     limiteConnexionIp.rendre(ip);
-
-    if (!ligne.est_actif) throw new ErreurClient('Ce compte est desactive', 403);
 
     const session = await auth.creerSession(ligne.id);
     completerValeursEnFond(ligne.id);
@@ -1467,6 +1480,12 @@ route('PUT', '/api/crypto/moi', async ({ req, corps }) => {
             `Champ staking_acquisition : ${STAKING_ACQUISITION.join(' ou ')} attendu`);
     }
 
+    // Changer d'adresse ouvre la reinitialisation du mot de passe a la nouvelle :
+    // une session volee suffirait sinon a s'approprier le compte pour de bon.
+    const ancienneAdresse = utilisateur.courriel;
+    const changeAdresse = adresse !== ancienneAdresse;
+    if (changeAdresse) await confirmerMotDePasseActuel(utilisateur.id, corps, req);
+
     const { rows } = await db.requete(
         `UPDATE utilisateur SET courriel = $2, nom = $3, prenom = $4, devise = $5,
                 plateforme_defaut = $6, staking_acquisition = $7
@@ -1476,8 +1495,56 @@ route('PUT', '/api/crypto/moi', async ({ req, corps }) => {
     );
     if (!rows.length) throw new ErreurClient('Compte introuvable', 404);
 
+    if (changeAdresse) {
+        prevenirChangementAdresse(ancienneAdresse, rows[0]).catch((err) => {
+            console.error("Avertissement de changement d'adresse :", err.message);
+        });
+    }
+
     return { code: 200, corps: comptePublic(rows[0]) };
 });
+
+// Le mot de passe actuel est verifie sous les memes garde-fous que la
+// connexion : limite par IP et plafond des verifications simultanees.
+async function confirmerMotDePasseActuel(utilisateurId, corps, req) {
+    const { rows } = await db.requete(
+        'SELECT mot_de_passe_hash FROM utilisateur WHERE id = $1',
+        [utilisateurId]
+    );
+    const empreinte = rows.length ? rows[0].mot_de_passe_hash : null;
+    if (!empreinte) {
+        throw new ErreurClient(
+            "Ce compte n'a pas de mot de passe : demandez à un administrateur de changer l'adresse.", 403);
+    }
+
+    const enClair = typeof corps.mot_de_passe_actuel === 'string' ? corps.mot_de_passe_actuel : '';
+    if (!enClair) {
+        throw new ErreurClient("Saisissez votre mot de passe actuel pour changer d'adresse.", 403);
+    }
+
+    const ip = adresseClient(req);
+    limiteConnexionIp.reserver(ip);
+    const valide = await sousPlafond(() => motdepasse.verifier(enClair, empreinte));
+    if (!valide) throw new ErreurClient('Mot de passe actuel incorrect', 403);
+    limiteConnexionIp.rendre(ip);
+}
+
+// L'ancienne adresse est prevenue : si le changement ne vient pas du
+// titulaire, c'est le seul signal qu'il recevra.
+async function prevenirChangementAdresse(ancienneAdresse, compte) {
+    await courriel.envoyer({
+        destinataire: ancienneAdresse,
+        sujet: 'Adresse de votre compte modifiée',
+        texte: [
+            `Bonjour ${compte.prenom},`,
+            '',
+            `L'adresse de votre compte Suivi crypto vient d'être changée pour : ${compte.courriel}`,
+            '',
+            "Si vous n'êtes pas à l'origine de ce changement, prévenez sans attendre",
+            "l'administrateur du site.",
+        ].join('\r\n'),
+    });
+}
 
 route('POST', '/api/crypto/deconnexion', async ({ req }) => {
     await auth.supprimerSession(auth.jetonDepuisRequete(req));
