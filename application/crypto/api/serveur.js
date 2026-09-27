@@ -1101,11 +1101,53 @@ const MAX_TENTATIVES = 3;
 const DUREE_BLOCAGE_MINUTES = 15;
 const DUREE_REINITIALISATION = 60 * 60 * 1000;
 
-// Limite par adresse IP, en memoire : freine les essais en serie sur
-// plusieurs comptes, que le compteur par compte ne voit pas.
-const MAX_ECHECS_IP = 10;
-const FENETRE_ECHECS_IP = 15 * 60 * 1000;
-const echecsParIp = new Map();
+// Limiteur en memoire : au plus `max` essais par cle sur une fenetre fixe.
+// Chaque essai est reserve avant tout await : reserver() est synchrone, et
+// JavaScript ne l'interrompt pas, deux requetes simultanees ne lisent donc
+// jamais le meme compteur ni ne franchissent le controle ensemble.
+function creerLimiteur({ max, fenetre, message }) {
+    const suivis = new Map();
+
+    // Renvoie true si la limite etait deja atteinte ; sinon compte l'essai
+    function depasse(cle) {
+        const maintenant = Date.now();
+        let suivi = suivis.get(cle);
+        if (!suivi || maintenant - suivi.debut > fenetre) {
+            suivi = { nombre: 0, debut: maintenant };
+            suivis.set(cle, suivi);
+        }
+        if (suivi.nombre >= max) return true;
+        suivi.nombre += 1;
+        return false;
+    }
+
+    setInterval(() => {
+        const maintenant = Date.now();
+        for (const [cle, suivi] of suivis) {
+            if (maintenant - suivi.debut > fenetre) suivis.delete(cle);
+        }
+    }, fenetre).unref();
+
+    return {
+        depasse,
+        reserver(cle) {
+            if (depasse(cle)) throw new ErreurClient(message, 429);
+        },
+        // Rend un essai sans effacer les autres
+        rendre(cle) {
+            const suivi = suivis.get(cle);
+            if (suivi && suivi.nombre > 0) suivi.nombre -= 1;
+        },
+    };
+}
+
+// Limite par adresse IP : freine les essais en serie sur plusieurs comptes,
+// que le compteur par compte ne voit pas.
+const limiteConnexionIp = creerLimiteur({
+    max: 10,
+    fenetre: 15 * 60 * 1000,
+    message: 'Trop de tentatives de connexion. Réessayez dans quelques minutes.',
+});
 
 // L'API n'ecoute que sur la boucle locale, derriere le proxy inverse de DSM :
 // X-Real-IP, pose par le proxy, est donc fiable.
@@ -1113,33 +1155,10 @@ function adresseClient(req) {
     return req.headers['x-real-ip'] || req.socket.remoteAddress || 'inconnue';
 }
 
-function verifierLimiteIp(ip) {
-    const suivi = echecsParIp.get(ip);
-    if (!suivi) return;
-    if (Date.now() - suivi.debut > FENETRE_ECHECS_IP) {
-        echecsParIp.delete(ip);
-        return;
-    }
-    if (suivi.nombre >= MAX_ECHECS_IP) {
-        throw new ErreurClient('Trop de tentatives de connexion. Réessayez dans quelques minutes.', 429);
-    }
-}
-
-function compterEchecIp(ip) {
-    const suivi = echecsParIp.get(ip);
-    if (!suivi || Date.now() - suivi.debut > FENETRE_ECHECS_IP) {
-        echecsParIp.set(ip, { nombre: 1, debut: Date.now() });
-    } else {
-        suivi.nombre += 1;
-    }
-}
-
-setInterval(() => {
-    const maintenant = Date.now();
-    for (const [ip, suivi] of echecsParIp) {
-        if (maintenant - suivi.debut > FENETRE_ECHECS_IP) echecsParIp.delete(ip);
-    }
-}, FENETRE_ECHECS_IP).unref();
+// Le scrypt occupe les threads de Node : au-dela de ce nombre de verifications
+// simultanees, une rafale venue de nombreuses adresses ralentirait tout le site.
+const MAX_VERIFICATIONS_SIMULTANEES = 8;
+let verificationsEnCours = 0;
 
 const CHAMPS_COMPTE = `id, courriel, nom, prenom, est_actif, est_admin, devise,
                 autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`;
@@ -1154,64 +1173,79 @@ function messageBloque() {
 
 route('POST', '/api/crypto/connexion', async ({ corps, req }) => {
     const ip = adresseClient(req);
-    verifierLimiteIp(ip);
+    limiteConnexionIp.reserver(ip);
 
     const adresse = exigerCourriel(corps);
     const enClair = exigerTexte(corps, 'mot_de_passe');
 
-    // Un blocage echu est leve avant tout : le compte repart de zero
-    await db.requete(
-        `UPDATE utilisateur SET est_bloque = FALSE, tentatives_echouees = 0, bloque_le = NULL
-         WHERE courriel = $1 AND est_bloque
-           AND (bloque_le IS NULL OR bloque_le < now() - make_interval(mins => $2))`,
-        [adresse, DUREE_BLOCAGE_MINUTES]
-    );
+    // Reserve avant le premier await, comme l'essai IP
+    if (verificationsEnCours >= MAX_VERIFICATIONS_SIMULTANEES) {
+        throw new ErreurClient('Serveur occupé, réessayez dans un instant.', 503);
+    }
+    verificationsEnCours += 1;
 
-    const { rows } = await db.requete(
-        `SELECT ${CHAMPS_COMPTE}, tentatives_echouees, mot_de_passe_hash
-         FROM utilisateur WHERE courriel = $1`,
-        [adresse]
-    );
+    let ligne;
+    let valide;
+    try {
+        // Un blocage echu est leve avant tout : le compte repart de zero
+        await db.requete(
+            `UPDATE utilisateur SET est_bloque = FALSE, tentatives_echouees = 0, bloque_le = NULL
+             WHERE courriel = $1 AND est_bloque
+               AND (bloque_le IS NULL OR bloque_le < now() - make_interval(mins => $2))`,
+            [adresse, DUREE_BLOCAGE_MINUTES]
+        );
 
-    const ligne = rows[0];
+        // L'essai est compte avant la verification, en une seule requete :
+        // PostgreSQL verrouille la ligne, chaque requete simultanee recoit donc
+        // son propre compteur, et au plus MAX_TENTATIVES passent au scrypt.
+        // Le compteur n'avance que sur un compte reellement protege par mot de
+        // passe : sinon le comportement observe revelerait quelles adresses existent.
+        const { rows } = await db.requete(
+            `UPDATE utilisateur
+             SET tentatives_echouees = tentatives_echouees + 1,
+                 est_bloque = (tentatives_echouees + 1 >= $2),
+                 bloque_le = CASE WHEN tentatives_echouees + 1 >= $2 THEN now() ELSE bloque_le END
+             WHERE courriel = $1 AND mot_de_passe_hash IS NOT NULL AND NOT est_bloque
+             RETURNING ${CHAMPS_COMPTE}, mot_de_passe_hash`,
+            [adresse, MAX_TENTATIVES]
+        );
+        ligne = rows[0];
 
-    // Un compte bloque ne voit meme pas son mot de passe verifie
-    if (ligne && ligne.est_bloque) {
-        compterEchecIp(ip);
-        throw messageBloque();
+        if (!ligne) {
+            // Un compte bloque ne voit meme pas son mot de passe verifie
+            const { rows: bloque } = await db.requete(
+                'SELECT 1 FROM utilisateur WHERE courriel = $1 AND est_bloque',
+                [adresse]
+            );
+            if (bloque.length) throw messageBloque();
+            // Message identique dans tous les cas : ne revele pas si le compte existe
+            throw new ErreurClient('Courriel ou mot de passe incorrect', 401);
+        }
+
+        valide = await motdepasse.verifier(enClair, ligne.mot_de_passe_hash);
+    } finally {
+        verificationsEnCours -= 1;
     }
 
-    const valide = ligne && ligne.mot_de_passe_hash
-        ? await motdepasse.verifier(enClair, ligne.mot_de_passe_hash)
-        : false;
-
+    // Les sessions ouvertes sont conservees : un inconnu qui se trompe de
+    // mot de passe ne doit pas pouvoir deconnecter le titulaire du compte.
     if (!valide) {
-        compterEchecIp(ip);
-        // Le compteur n'avance que sur un compte reellement protege par mot de passe :
-        // sinon le comportement observe revelerait quelles adresses existent.
-        // Les sessions ouvertes sont conservees : un inconnu qui se trompe de
-        // mot de passe ne doit pas pouvoir deconnecter le titulaire du compte.
-        if (ligne && ligne.mot_de_passe_hash) {
-            const { rows: apres } = await db.requete(
-                `UPDATE utilisateur
-                 SET tentatives_echouees = tentatives_echouees + 1,
-                     est_bloque = (tentatives_echouees + 1 >= $2),
-                     bloque_le = CASE WHEN tentatives_echouees + 1 >= $2 THEN now() END
-                 WHERE id = $1
-                 RETURNING est_bloque`,
-                [ligne.id, MAX_TENTATIVES]
-            );
-            if (apres[0].est_bloque) throw messageBloque();
-        }
-        // Message identique dans tous les cas : ne revele pas si le compte existe
+        if (ligne.est_bloque) throw messageBloque();
         throw new ErreurClient('Courriel ou mot de passe incorrect', 401);
     }
 
-    if (!ligne.est_actif) throw new ErreurClient('Ce compte est desactive', 403);
+    // Le bon mot de passe efface le compteur, y compris le blocage que son
+    // propre essai venait de poser s'il etait le dernier autorise.
+    await db.requete(
+        'UPDATE utilisateur SET tentatives_echouees = 0, est_bloque = FALSE, bloque_le = NULL WHERE id = $1',
+        [ligne.id]
+    );
+    ligne.est_bloque = false;
+    // Une connexion reussie rend son essai, sans effacer les autres : posseder
+    // un compte valide ne doit pas permettre de remettre son compteur a zero.
+    limiteConnexionIp.rendre(ip);
 
-    if (ligne.tentatives_echouees > 0) {
-        await db.requete('UPDATE utilisateur SET tentatives_echouees = 0 WHERE id = $1', [ligne.id]);
-    }
+    if (!ligne.est_actif) throw new ErreurClient('Ce compte est desactive', 403);
 
     const session = await auth.creerSession(ligne.id);
     completerValeursEnFond(ligne.id);
@@ -1295,9 +1329,19 @@ async function preparerLienMotDePasse(utilisateurId, req) {
     return `${adresseDuSite(req)}/reinitialisation.html?jeton=${encodeURIComponent(jeton)}`;
 }
 
-route('POST', '/api/crypto/mot-de-passe/oubli', async ({ corps, req }) => {
-    const adresse = exigerCourriel(corps);
+// Demandes de reinitialisation : par IP, un refus explicite ne revele rien sur
+// les comptes ; par adresse, la reponse reste la meme, mais rien n'est fait,
+// pour qu'on ne puisse ni inonder une boite ni annuler le lien du titulaire.
+const limiteOubliIp = creerLimiteur({
+    max: 5,
+    fenetre: 60 * 60 * 1000,
+    message: 'Trop de demandes. Réessayez plus tard.',
+});
+const limiteOubliAdresse = creerLimiteur({ max: 3, fenetre: 60 * 60 * 1000 });
 
+// Lancee sans attendre : la reponse part avant la recherche du compte et
+// l'envoi SMTP, son delai ne dit donc pas si l'adresse existe.
+async function envoyerLienReinitialisation(adresse, req) {
     const { rows } = await db.requete(
         `SELECT id, prenom FROM utilisateur
          WHERE courriel = $1 AND est_actif AND (mot_de_passe_hash IS NOT NULL OR mot_de_passe_a_definir)`,
@@ -1330,6 +1374,17 @@ route('POST', '/api/crypto/mot-de-passe/oubli', async ({ corps, req }) => {
             // la reponse doit rester identique pour toutes les adresses.
             console.error('Envoi du courriel de réinitialisation :', err.message);
         }
+    }
+}
+
+route('POST', '/api/crypto/mot-de-passe/oubli', async ({ corps, req }) => {
+    limiteOubliIp.reserver(adresseClient(req));
+    const adresse = exigerCourriel(corps);
+
+    if (!limiteOubliAdresse.depasse(adresse)) {
+        envoyerLienReinitialisation(adresse, req).catch((err) => {
+            console.error('Demande de réinitialisation :', err);
+        });
     }
 
     return {

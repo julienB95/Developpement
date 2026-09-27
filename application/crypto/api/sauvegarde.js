@@ -12,6 +12,8 @@
 //                                 (défaut : dossier Sauvegarde à côté du dépôt)
 //   SAUVEGARDE_COURRIEL           destinataire de l'archive
 //   SAUVEGARDE_TAILLE_COURRIEL_MO taille maximale de la pièce jointe (défaut 15)
+//   SAUVEGARDE_MOT_DE_PASSE       chiffre en AES-256 l'archive jointe au courriel ;
+//                                 absent, le courriel part sans pièce jointe
 const fs = require('fs');
 const path = require('path');
 const db = require('../../_commun/api/db');
@@ -45,6 +47,14 @@ function racine() {
 function destinataire() {
     return process.env.SAUVEGARDE_COURRIEL || DESTINATAIRE_DEFAUT;
 }
+
+function motDePasseArchive() {
+    return process.env.SAUVEGARDE_MOT_DE_PASSE || null;
+}
+
+// Données éphémères : une restauration n'en a pas besoin, et les empreintes
+// de sessions et de liens n'ont pas à voyager. La table est vidée, pas remplie.
+const TABLES_NON_SAUVEGARDEES = new Set(['session', 'reinitialisation']);
 
 function tailleMaximaleCourriel() {
     return Number(process.env.SAUVEGARDE_TAILLE_COURRIEL_MO || 15) * 1024 * 1024;
@@ -258,6 +268,11 @@ async function sauvegarderBase(destination) {
     let total = 0;
 
     for (const table of tables) {
+        if (TABLES_NON_SAUVEGARDEES.has(table)) {
+            morceaux.push(`-- ${table} : données temporaires, non sauvegardées`, '');
+            continue;
+        }
+
         const { colonnes, lignes } = await contenuTable(table);
         morceaux.push(`-- ${table} : ${lignes.length} ligne(s)`);
 
@@ -318,7 +333,7 @@ function formaterOctets(octets) {
     return `${(octets / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
-function corpsCourriel(manifeste, dossier, jointe) {
+function corpsCourriel(manifeste, dossier, pieceJointe, sansPiece) {
     const lignes = [
         `Sauvegarde du site crypto : ${manifeste.dossier}`,
         '',
@@ -330,12 +345,16 @@ function corpsCourriel(manifeste, dossier, jointe) {
         `Dossier sur le serveur : ${dossier}`,
     ];
 
-    if (!jointe) {
+    // Le mot de passe de l'archive n'apparait jamais dans le message
+    if (pieceJointe) {
         lignes.push(
             '',
-            `L'archive dépasse ${formaterOctets(tailleMaximaleCourriel())} : elle n'est pas jointe`,
-            'à ce message et reste disponible dans le dossier ci-dessus.'
+            "L'archive jointe est chiffrée en AES-256 : ouvrez-la avec 7-Zip ou WinRAR,",
+            "avec le mot de passe de sauvegarde. L'explorateur de Windows ne sait pas la lire."
         );
+    } else {
+        lignes.push('', `${sansPiece} : l'archive n'est pas jointe à ce message`,
+            'et reste disponible dans le dossier ci-dessus.');
     }
 
     return lignes.join('\n');
@@ -343,11 +362,16 @@ function corpsCourriel(manifeste, dossier, jointe) {
 
 // Un courriel qui ne part pas ne remet pas la sauvegarde en cause : elle est
 // déjà sur le disque. L'échec est consigné dans le manifeste, et affiché.
-async function prevenir(manifeste, dossier, archive) {
+// La pièce jointe est une archive à part, chiffrée : celle du disque côtoie
+// les dossiers source/ et bdd/ en clair, la chiffrer n'y protégerait rien.
+// Sans mot de passe configuré, rien n'est joint : jamais d'envoi en clair.
+async function prevenir(manifeste, dossier, entrees, horodatage) {
     const adresse = destinataire();
-    const jointe = archive.length <= tailleMaximaleCourriel();
+    const motDePasse = motDePasseArchive();
 
-    const resultat = { destinataire: adresse, envoye: false, piece_jointe: false, erreur: null };
+    const resultat = {
+        destinataire: adresse, envoye: false, piece_jointe: false, sans_piece_jointe: null, erreur: null,
+    };
 
     if (!courriel.estConfigure()) {
         resultat.erreur = 'Envoi de courriel non configuré : renseignez les variables SMTP_ du .env';
@@ -355,16 +379,28 @@ async function prevenir(manifeste, dossier, archive) {
     }
 
     try {
+        let piece = null;
+        if (!motDePasse) {
+            resultat.sans_piece_jointe = 'Aucun mot de passe de chiffrement configuré (SAUVEGARDE_MOT_DE_PASSE)';
+        } else {
+            const chiffree = zip.ecrire(entrees, { horodatage, motDePasse });
+            if (chiffree.length <= tailleMaximaleCourriel()) {
+                piece = chiffree;
+            } else {
+                resultat.sans_piece_jointe = `L'archive dépasse ${formaterOctets(tailleMaximaleCourriel())}`;
+            }
+        }
+
         await courriel.envoyer({
             destinataire: adresse,
             sujet: `Sauvegarde du site crypto du ${manifeste.dossier}`,
-            texte: corpsCourriel(manifeste, dossier, jointe),
-            pieces: jointe
-                ? [{ nom: `${manifeste.dossier}.zip`, type: 'application/zip', contenu: archive }]
+            texte: corpsCourriel(manifeste, dossier, Boolean(piece), resultat.sans_piece_jointe),
+            pieces: piece
+                ? [{ nom: `${manifeste.dossier}.zip`, type: 'application/zip', contenu: piece }]
                 : [],
         });
         resultat.envoye = true;
-        resultat.piece_jointe = jointe;
+        resultat.piece_jointe = Boolean(piece);
     } catch (err) {
         resultat.erreur = err.message;
         console.error('Envoi de la sauvegarde par courriel :', err.message);
@@ -454,11 +490,12 @@ async function creer(demandeur) {
         // pour qu'une sauvegarde interrompue se reconnaisse.
         await ecrireManifeste(chemin, manifeste);
 
-        const archive = zip.ecrire(await entreesArchive(chemin), { horodatage: debut });
+        const entrees = await entreesArchive(chemin);
+        const archive = zip.ecrire(entrees, { horodatage: debut });
         await fs.promises.writeFile(path.join(chemin, NOM_ARCHIVE), archive);
         manifeste.archive.octets = archive.length;
 
-        manifeste.courriel = await prevenir(manifeste, chemin, archive);
+        manifeste.courriel = await prevenir(manifeste, chemin, entrees, debut);
         manifeste.statut = 'terminee';
         manifeste.duree_ms = Date.now() - debut.getTime();
         await ecrireManifeste(chemin, manifeste);

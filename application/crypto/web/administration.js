@@ -1175,7 +1175,8 @@
         return ligne.courriel.piece_jointe
             ? etiquetteEtat('Envoyé', 'etiquette-importee', infobulle)
             : etiquetteEtat('Sans pièce jointe', 'etiquette-doublon',
-                infobulle + " — l'archive dépassait la taille autorisée");
+                infobulle + ' — ' + (ligne.courriel.sans_piece_jointe
+                    || "l'archive dépassait la taille autorisée"));
     }
 
     // Icône de corbeille dessinée en SVG : aucun fichier image à charger,
