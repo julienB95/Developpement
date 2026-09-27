@@ -872,6 +872,35 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
 }
 .pv-total-libelle { font-size: 13px; color: var(--encre-douce); }
 
+/* En-tête d'un panneau : titre à gauche, commande à droite */
+.panneau-entete { margin-bottom: 12px; }
+.panneau .panneau-entete .bloc-titre { margin: 0; }
+
+/* Bascule € / % : les deux unités restent visibles, l'active est mise en avant */
+.bascule-unite {
+    display: inline-flex;
+    padding: 2px;
+    font: inherit;
+    background: var(--fond);
+    border: 1px solid var(--bordure);
+    border-radius: 999px;
+    cursor: pointer;
+}
+.bascule-unite:hover { border-color: var(--accent); }
+.bascule-unite:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.bascule-choix {
+    min-width: 24px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--encre-douce);
+    text-align: center;
+}
+.bascule-choix.actif { background: var(--accent); color: #fff; }
+
 /* L'année en cours n'est pas close : son total est signalé comme estimé */
 .pv-etiquette {
     display: inline-block;

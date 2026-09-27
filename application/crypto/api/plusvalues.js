@@ -124,6 +124,21 @@ async function somme(valeurs) {
     return rows[0].total;
 }
 
+// Plus-value rapportee a ce qu'ont coute les cryptos cedees, en pourcent : la
+// fraction de capital imputee, soit le prix net moins la plus-value. Seules
+// les cessions calculees y entrent, sans quoi le rapport melangerait des prix
+// de cession sans plus-value en face. Nul si rien n'a ete impute.
+async function rendement(lignes) {
+    const calculees = lignes.filter((l) => l.plus_value !== null && l.prix_cession !== null);
+    if (!calculees.length) return null;
+    const { rows } = await db.requete(
+        `SELECT CASE WHEN SUM(c - p) > 0 THEN (SUM(p) * 100 / SUM(c - p))::text END AS rendement
+         FROM unnest($1::numeric[], $2::numeric[]) AS t(c, p)`,
+        [calculees.map((l) => l.prix_cession), calculees.map((l) => l.plus_value)]
+    );
+    return rows[0].rendement;
+}
+
 // Ce qui empeche de tenir une cession pour calculee. La liste est renvoyee
 // telle quelle a l'interface : mieux vaut un chiffre accompagne de sa reserve
 // qu'un chiffre presente comme sur alors qu'il ne l'est pas.
@@ -479,6 +494,7 @@ async function regrouper(annee, retenues, encadrement) {
             vente_simulee: groupe.lignes.some((l) => l.simulee),
             prix_cession: await somme(groupe.lignes.map((l) => l.prix_cession).filter(Boolean)),
             plus_value: calculees.length ? await somme(calculees.map((l) => l.plus_value)) : null,
+            rendement: await rendement(groupe.lignes),
             complet: groupe.lignes.every((l) => l.complet),
             lignes: groupe.lignes,
         });
@@ -497,6 +513,7 @@ async function regrouper(annee, retenues, encadrement) {
             ventes_simulees: retenues.filter((l) => l.simulee).length,
             prix_cession: await somme(retenues.map((l) => l.prix_cession).filter(Boolean)),
             plus_value: calculees.length ? await somme(calculees.map((l) => l.plus_value)) : null,
+            rendement: await rendement(retenues),
         },
         complet: retenues.every((l) => l.complet),
         premiere_annee: encadrement.premiere,

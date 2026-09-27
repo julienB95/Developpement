@@ -144,6 +144,18 @@
 
     var anneePlusValues = ANNEE_COURANTE;
 
+    // Unité d'affichage des plus-values, retenue d'une visite à l'autre sur ce poste
+    var CLE_UNITE_PV = 'crypto.plus_values.unite';
+    var pvUnite = document.getElementById('pv-unite');
+    var unitePlusValues = 'euro';
+    var dernierBilan = null;
+
+    try {
+        if (localStorage.getItem(CLE_UNITE_PV) === 'pourcent') unitePlusValues = 'pourcent';
+    } catch (e) {
+        unitePlusValues = 'euro';
+    }
+
     function messagePlusValues(texte, classe) {
         C.vider(pvContenu);
         var message = document.createElement('p');
@@ -172,6 +184,36 @@
         if (montant === null || montant === undefined) return '—';
         var formate = formaterEuros(montant);
         return String(montant).charAt(0) === '-' ? formate : '+' + formate;
+    }
+
+    // Le pourcentage arrive en chaîne décimale non arrondie : l'arrondi n'a
+    // lieu qu'ici, et le signe vient de la chaîne comme pour les euros.
+    function signerPourcent(valeur) {
+        if (valeur === null || valeur === undefined) return '—';
+        var nombre = Number(valeur);
+        if (!isFinite(nombre)) return '—';
+        var formate = new Intl.NumberFormat('fr-FR', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        }).format(nombre) + ' %';
+        return String(valeur).charAt(0) === '-' ? formate : '+' + formate;
+    }
+
+    function afficherPlusValue(element, porteur) {
+        element.textContent = unitePlusValues === 'pourcent'
+            ? signerPourcent(porteur.rendement)
+            : signerEuros(porteur.plus_value);
+    }
+
+    function appliquerUnite() {
+        if (!pvUnite) return;
+        var pourcent = unitePlusValues === 'pourcent';
+        pvUnite.setAttribute('aria-pressed', pourcent ? 'true' : 'false');
+        pvUnite.title = pourcent ? 'Afficher en euro' : 'Afficher en pourcentage';
+        pvUnite.setAttribute('aria-label', pvUnite.title);
+        Array.prototype.forEach.call(pvUnite.querySelectorAll('.bascule-choix'), function (choix) {
+            choix.classList.toggle('actif', choix.getAttribute('data-unite') === unitePlusValues);
+        });
     }
 
     function classePlusValue(montant) {
@@ -210,7 +252,7 @@
 
         var montant = document.createElement('span');
         montant.className = 'pv-montant ' + classePlusValue(crypto.plus_value);
-        montant.textContent = signerEuros(crypto.plus_value);
+        afficherPlusValue(montant, crypto);
 
         item.appendChild(texte);
         item.appendChild(montant);
@@ -233,6 +275,7 @@
     }
 
     function rendrePlusValues(donnees) {
+        dernierBilan = donnees;
         pvAnnee.textContent = donnees.annee;
         pvPrecedent.disabled = donnees.premiere_annee !== null
             && donnees.annee <= donnees.premiere_annee;
@@ -265,7 +308,7 @@
 
         var montantTotal = document.createElement('span');
         montantTotal.className = 'pv-total-montant ' + classePlusValue(donnees.total.plus_value);
-        montantTotal.textContent = signerEuros(donnees.total.plus_value);
+        afficherPlusValue(montantTotal, donnees.total);
 
         total.appendChild(libelle);
         total.appendChild(montantTotal);
@@ -334,6 +377,8 @@
         // sur quelle annee on se trouve.
         pvAnnee.textContent = anneePlusValues;
 
+        dernierBilan = null;
+
         C.appeler('/plus-values?annee=' + anneePlusValues)
             .then(rendrePlusValues)
             .catch(function (erreur) {
@@ -344,6 +389,22 @@
     function changerAnnee(pas) {
         anneePlusValues += pas;
         chargerPlusValues();
+    }
+
+    // Changer d'unité ne demande rien au serveur : le bilan reçu porte les deux
+    appliquerUnite();
+    if (pvUnite) {
+        pvUnite.addEventListener('click', function () {
+            unitePlusValues = unitePlusValues === 'pourcent' ? 'euro' : 'pourcent';
+            try {
+                localStorage.setItem(CLE_UNITE_PV, unitePlusValues);
+            } catch (e) {
+                // Choix non mémorisé : il vaut pour la visite en cours
+                console.warn('Unité des plus-values non mémorisée :', e.message);
+            }
+            appliquerUnite();
+            if (dernierBilan) rendrePlusValues(dernierBilan);
+        });
     }
 
     if (pvPrecedent) {
