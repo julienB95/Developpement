@@ -41,8 +41,13 @@
         C.vider(listeDetentions);
 
         donnees.lignes.forEach(function (ligne) {
+            // Toute la ligne mène à la page détaillée de la crypto
             var item = document.createElement('li');
-            item.className = 'detention';
+            var lien = document.createElement('a');
+            lien.className = 'detention';
+            lien.href = '/ma-crypto.html?id=' + encodeURIComponent(ligne.id_crypto);
+            lien.title = 'Voir le détail de ' + ligne.libelle;
+            item.appendChild(lien);
 
             var texte = document.createElement('span');
             texte.className = 'detention-texte';
@@ -80,9 +85,9 @@
             chiffres.appendChild(prix);
             chiffres.appendChild(total);
 
-            item.appendChild(C.logoCrypto(ligne.id_crypto));
-            item.appendChild(texte);
-            item.appendChild(chiffres);
+            lien.appendChild(C.logoCrypto(ligne.id_crypto));
+            lien.appendChild(texte);
+            lien.appendChild(chiffres);
             listeDetentions.appendChild(item);
         });
 

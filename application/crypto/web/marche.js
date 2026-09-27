@@ -359,24 +359,47 @@
     var SVG = 'http://www.w3.org/2000/svg';
     var CADRE = { largeur: 720, hauteur: 260, haut: 16, droite: 16, bas: 28, gauche: 74 };
     var compteurDegrade = 0;
-    var formateurHeure = null;
+    var formateursParis = {};
+
+    // Formateur à l'heure de Paris, construit une fois par jeu d'options
+    function formateurParis(cle, options) {
+        if (!formateursParis[cle]) {
+            try {
+                formateursParis[cle] = new Intl.DateTimeFormat('fr-FR',
+                    Object.assign({ timeZone: 'Europe/Paris' }, options));
+            } catch (e) {
+                // Fuseau inconnu du navigateur : repli sur l'heure locale du poste
+                formateursParis[cle] = new Intl.DateTimeFormat('fr-FR', options);
+            }
+        }
+        return formateursParis[cle];
+    }
 
     function heureParis(iso) {
         var date = new Date(iso);
         if (isNaN(date.getTime())) return '';
+        return formateurParis('heure', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+    }
 
-        if (!formateurHeure) {
-            var options = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
-            try {
-                options.timeZone = 'Europe/Paris';
-                formateurHeure = new Intl.DateTimeFormat('fr-FR', options);
-            } catch (e) {
-                // Fuseau inconnu du navigateur : repli sur l'heure locale du poste
-                delete options.timeZone;
-                formateurHeure = new Intl.DateTimeFormat('fr-FR', options);
-            }
+    // Repère d'un point selon la période tracée : l'heure sur 24 heures, le
+    // jour et l'heure sur une semaine, le jour seul au-delà, l'année sur un an.
+    function repereTemps(iso, jours) {
+        var date = new Date(iso);
+        if (isNaN(date.getTime())) return '';
+        if (!jours || jours <= 1) return heureParis(iso);
+        if (jours <= 7) {
+            return formateurParis('jour-heure', {
+                day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+            }).format(date);
         }
-        return formateurHeure.format(date);
+        if (jours <= 90) return formateurParis('jour', { day: 'numeric', month: 'short' }).format(date);
+        return formateurParis('jour-annee', { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+    }
+
+    function libellePeriode(jours) {
+        if (!jours || jours <= 1) return 'les 24 dernières heures';
+        if (jours === 365) return 'la dernière année';
+        return 'les ' + jours + ' derniers jours';
     }
 
     function baliseSvg(nom, attributs) {
@@ -388,8 +411,9 @@
     }
 
     // hausse : true, false, ou null quand la variation n'est pas connue.
+    // jours : période tracée, 24 heures si absente ; elle règle les repères de temps.
     // Renvoie le trace et de quoi y promener le curseur de lecture.
-    function tracerGraphique(points, devise, hausse) {
+    function tracerGraphique(points, devise, hausse, jours) {
         var valeurs = points.map(function (point) { return Number(point.prix); });
         var mini = valeurs.reduce(function (a, b) { return b < a ? b : a; }, valeurs[0]);
         var maxi = valeurs.reduce(function (a, b) { return b > a ? b : a; }, valeurs[0]);
@@ -418,7 +442,7 @@
             viewBox: '0 0 ' + CADRE.largeur + ' ' + CADRE.hauteur,
             class: 'graphique graphique-' + teinte,
             role: 'img',
-            'aria-label': 'Évolution du cours sur les 24 dernières heures, entre '
+            'aria-label': 'Évolution du cours sur ' + libellePeriode(jours) + ', entre '
                 + formaterPrix(mini, devise) + ' et ' + formaterPrix(maxi, devise),
         });
 
@@ -477,7 +501,7 @@
                 class: 'graphique-heure',
                 x: abscisse(rang), y: CADRE.hauteur - 8, 'text-anchor': ancrage,
             });
-            libelle.textContent = heureParis(points[rang].horodatage);
+            libelle.textContent = repereTemps(points[rang].horodatage, jours);
             svg.appendChild(libelle);
         });
 
@@ -847,5 +871,9 @@
         appliquer: appliquer,
         formaterVariation: formaterVariation,
         classeVariation: classeVariation,
+        tracerGraphique: tracerGraphique,
+        repereTemps: repereTemps,
+        libellePeriode: libellePeriode,
+        ilYA: ilYA,
     };
 })();

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ma crypto — Suivi crypto</title>
+    <link rel="icon" href="/image/logo.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="entete">
+    <a class="marque" href="/">
+        <span class="marque-signe" aria-hidden="true">₿</span>
+        <span class="marque-texte">Suivi crypto</span>
+    </a>
+
+    <div class="entete-droite">
+        <div class="encart-marche" id="encart-marche" hidden></div>
+
+        <!-- Devise d'affichage des montants : réglage du compte une fois connecté -->
+        <button type="button" class="devise" id="bouton-devise">
+            <span id="devise-symbole" aria-hidden="true">€</span>
+        </button>
+
+        <!-- Date du jour, heure de Paris et heure de New York -->
+        <div class="horloge" id="horloge">
+            <span class="horloge-jour" id="horloge-jour"></span>
+
+            <span class="horloge-heure" title="Heure de Paris">
+                <svg class="drapeau" viewBox="0 0 18 12" role="img" aria-label="France">
+                    <rect width="6" height="12" fill="#002654"></rect>
+                    <rect x="6" width="6" height="12" fill="#ffffff"></rect>
+                    <rect x="12" width="6" height="12" fill="#ed2939"></rect>
+                </svg>
+                <span id="horloge-paris">--:--:--</span>
+            </span>
+
+            <span class="horloge-heure" title="Heure de New York (côte est)">
+                <svg class="drapeau" viewBox="0 0 18 12" role="img" aria-label="États-Unis, côte est">
+                    <rect width="18" height="12" fill="#ffffff"></rect>
+                    <g fill="#b22234">
+                        <rect y="0" width="18" height="0.92"></rect>
+                        <rect y="1.85" width="18" height="0.92"></rect>
+                        <rect y="3.69" width="18" height="0.92"></rect>
+                        <rect y="5.54" width="18" height="0.92"></rect>
+                        <rect y="7.38" width="18" height="0.92"></rect>
+                        <rect y="9.23" width="18" height="0.92"></rect>
+                        <rect y="11.08" width="18" height="0.92"></rect>
+                    </g>
+                    <rect width="7.2" height="6.46" fill="#3c3b6e"></rect>
+                </svg>
+                <span id="horloge-newyork">--:--:--</span>
+            </span>
+        </div>
+
+        <nav class="compte" id="bloc-compte" aria-live="polite"></nav>
+    </div>
+</header>
+
+<main>
+    <nav class="fil" aria-label="Fil d'ariane">
+        <a href="/">Accueil</a> <span aria-hidden="true">›</span> <span>Ma crypto</span>
+    </nav>
+
+    <h1 class="titre-crypto">
+        <span class="titre-crypto-logo" id="crypto-logo" aria-hidden="true"></span>
+        <span id="crypto-nom">Ma crypto</span>
+        <span class="compteur" id="crypto-code" hidden></span>
+    </h1>
+
+    <p class="erreur" id="erreur-page" role="alert" hidden></p>
+
+    <section class="espace" id="zone-crypto" aria-label="Ma position" hidden>
+        <div class="indicateurs">
+            <div class="indicateur">
+                <span class="indicateur-libelle">Quantité totale</span>
+                <span class="indicateur-valeur" id="ind-quantite">—</span>
+            </div>
+
+            <div class="indicateur">
+                <span class="indicateur-libelle">Cours actuel</span>
+                <span class="indicateur-valeur" id="ind-cours">—</span>
+                <span class="variation" id="ind-variation"></span>
+            </div>
+
+            <div class="indicateur">
+                <span class="indicateur-libelle">Position totale</span>
+                <span class="indicateur-valeur" id="ind-valeur">—</span>
+            </div>
+
+            <div class="indicateur">
+                <span class="indicateur-libelle">Prix d'acquisition moyen</span>
+                <span class="indicateur-valeur" id="ind-prix-moyen">—</span>
+                <span class="indicateur-note" id="ind-cout"></span>
+            </div>
+
+            <div class="indicateur">
+                <span class="indicateur-entete">
+                    <span class="indicateur-libelle">Performance</span>
+                    <span class="bascule-unite" role="group" aria-label="Unité de la performance">
+                        <button type="button" class="bascule-unite-choix" data-unite="devise"
+                                aria-pressed="true">€</button>
+                        <button type="button" class="bascule-unite-choix" data-unite="pourcentage"
+                                aria-pressed="false">%</button>
+                    </span>
+                </span>
+                <span class="indicateur-valeur" id="ind-performance">—</span>
+            </div>
+        </div>
+
+        <p class="aide indicateurs-releve" id="crypto-releve"></p>
+    </section>
+
+    <section class="espace" id="zone-graphique" aria-labelledby="titre-graphique" hidden>
+        <div class="bloc-entete">
+            <h2 class="bloc-titre" id="titre-graphique">Cours</h2>
+
+            <div class="onglets onglets-periode" role="group" aria-label="Période du graphique">
+                <button type="button" class="onglet actif" data-jours="1" aria-pressed="true">24 h</button>
+                <button type="button" class="onglet" data-jours="7" aria-pressed="false">7 j</button>
+                <button type="button" class="onglet" data-jours="30" aria-pressed="false">30 j</button>
+                <button type="button" class="onglet" data-jours="90" aria-pressed="false">90 j</button>
+                <button type="button" class="onglet" data-jours="365" aria-pressed="false">1 an</button>
+            </div>
+        </div>
+
+        <p class="aide" id="graphique-etat"></p>
+        <div class="graphique-zone" id="graphique-zone"></div>
+
+        <div class="graphique-pied" id="graphique-pied" hidden>
+            <p class="graphique-lecture" id="graphique-lecture"></p>
+            <p class="graphique-bornes" id="graphique-bornes"></p>
+        </div>
+    </section>
+
+    <section class="espace" id="zone-deconnecte" hidden>
+        <h2>Connexion requise</h2>
+        <p class="espace-vide">
+            Votre portefeuille est accessible une fois connecté.
+            <a href="/">Revenir à l'accueil</a> pour vous connecter.
+        </p>
+    </section>
+</main>
+
+<footer class="pied">
+    <p>Les informations présentées ne constituent pas un conseil fiscal. Vérifiez vos montants avant déclaration.</p>
+</footer>
+
+<script src="/commun.js"></script>
+<script src="/marche.js"></script>
+<script src="/ma-crypto.js"></script>
+</body>
+</html>

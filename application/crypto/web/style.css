@@ -788,14 +788,21 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
 
 .liste-detentions { list-style: none; margin: 0; padding: 0; }
 
+/* Chaque ligne est un lien vers la page de la crypto */
 .detention {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 0;
+    padding: 10px 6px;
+    color: inherit;
+    text-decoration: none;
     border-bottom: 1px solid var(--bordure);
+    border-radius: 6px;
+    transition: background-color 0.15s;
 }
-.detention:last-child { border-bottom: 0; }
+.liste-detentions li:last-child .detention { border-bottom: 0; }
+.detention:hover { background: var(--fond); }
+.detention:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 .detention-texte { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 
@@ -1690,3 +1697,81 @@ body.page-large main { max-width: 1720px; }
 .decl-legende dt { margin-top: 10px; font-weight: 600; }
 .decl-legende dt:first-child { margin-top: 0; }
 .decl-legende dd { margin: 0 0 0 44px; font-size: 14px; color: var(--encre-douce); }
+
+/* --- Page d'une crypto du portefeuille ------------------------------------ */
+
+.titre-crypto {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+.titre-crypto-logo { display: inline-flex; }
+.titre-crypto .compteur { font-size: 15px; }
+
+.indicateurs {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+}
+
+.indicateur {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    padding: 14px 16px;
+    background: var(--fond);
+    border-radius: var(--rayon);
+}
+
+.indicateur-entete {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.indicateur-libelle { font-size: 13px; color: var(--encre-douce); }
+
+.indicateur-valeur {
+    font-size: 20px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+.indicateur-valeur.variation-hausse { color: #2f9e6b; }
+.indicateur-valeur.variation-baisse { color: #d0574f; }
+
+.indicateur-note { font-size: 12px; color: var(--encre-douce); }
+
+.indicateurs-releve { margin: 14px 0 0; font-size: 12px; }
+
+/* Choix de l'unité de la performance : euro ou pourcentage */
+.bascule-unite {
+    display: inline-flex;
+    padding: 2px;
+    background: var(--fond-carte);
+    border: 1px solid var(--bordure);
+    border-radius: 7px;
+}
+.bascule-unite-choix {
+    min-width: 28px;
+    padding: 2px 8px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--encre-douce);
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+    cursor: pointer;
+}
+.bascule-unite-choix[aria-pressed="true"] {
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+}
+.bascule-unite-choix:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.onglets-periode { margin: 0; min-width: 280px; }
+.onglets-periode .onglet { padding: 6px 10px; font-size: 14px; }

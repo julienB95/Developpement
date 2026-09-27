@@ -131,12 +131,12 @@ route('GET', '/api/crypto/marche/cours', async ({ url }) => {
     }
 });
 
-// Evolution du cours sur les dernieres 24 heures, pour le graphique ouvert au
-// clic sur une carte. Publique comme les cours eux-memes.
+// Evolution du cours sur une periode glissante (jours=1, 7, 30, 90 ou 365 ;
+// 24 heures par defaut), pour les graphiques. Publique comme les cours eux-memes.
 route('GET', '/api/crypto/marche/historique/:actif', async ({ params, url }) => {
     try {
         const donnees = await marche.historique(params.actif, url.searchParams.get('devise'),
-            url.searchParams.get('forcer') === '1');
+            url.searchParams.get('forcer') === '1', url.searchParams.get('jours'));
         return { code: 200, corps: donnees };
     } catch (err) {
         throw new ErreurClient(err.message, Number.isInteger(err.code) ? err.code : 503);
@@ -932,6 +932,112 @@ route('GET', '/api/crypto/mon-portefeuille', async ({ req }) => {
         corps: {
             lignes: rows,
             devise: 'EUR',
+            source: marcheEur ? marcheEur.source : null,
+            releve_le: marcheEur ? marcheEur.releve_le : null,
+            cours_indisponible: coursIndisponible,
+        },
+    };
+});
+
+// Detail d'une crypto du portefeuille : quantite, cours, valeur, prix moyen
+// d'acquisition et performance latente.
+//
+// Le prix moyen suit la methode du cout moyen pondere, operation par operation :
+// un achat ajoute sa quantite et son cout (frais compris), une vente retire sa
+// quantite au prix moyen du moment, sans le modifier. Un simple quotient des
+// achats par les quantites achetees serait faux des qu'un rachat suit une vente.
+// Le staking ajoute sa quantite ; son cout suit la convention du compte, comme
+// pour les plus-values : nul, ou valeur a la reception.
+//
+// Tout le calcul est fait en NUMERIC par PostgreSQL ; le cours arrive de la
+// source en chaine et ne passe jamais par un flottant.
+const SUIVI_POSITION = `
+WITH RECURSIVE ops AS (
+    SELECT row_number() OVER (ORDER BY o.horodatage, o.id) AS rang,
+           o.type,
+           o.quantite::numeric AS quantite,
+           CASE WHEN o.type = 'achat'
+                    THEN o.quantite * COALESCE(o.prix_unitaire, 0) + o.frais
+                WHEN o.type = 'staking' AND $3
+                    THEN o.quantite * COALESCE(o.prix_unitaire, 0)
+                ELSE 0 END::numeric AS cout
+    FROM operation o
+    WHERE o.utilisateur_id = $1 AND o.id_crypto = $2
+),
+suivi (rang, quantite, cout) AS (
+    SELECT 0::bigint, 0::numeric, 0::numeric
+    UNION ALL
+    SELECT o.rang,
+           CASE WHEN o.type = 'vente' THEN s.quantite - o.quantite
+                ELSE s.quantite + o.quantite END,
+           CASE WHEN o.type <> 'vente' THEN s.cout + o.cout
+                WHEN s.quantite > 0
+                    THEN s.cout * GREATEST(s.quantite - o.quantite, 0) / s.quantite
+                ELSE 0 END
+    FROM suivi s
+    JOIN ops o ON o.rang = s.rang + 1
+),
+position_finale AS (
+    SELECT quantite, cout FROM suivi ORDER BY rang DESC LIMIT 1
+)
+SELECT (SELECT count(*)::int FROM ops) AS operations,
+       p.quantite::text AS quantite,
+       p.cout::text AS cout_acquisition,
+       CASE WHEN p.quantite > 0 THEN (p.cout / p.quantite)::text END AS prix_moyen,
+       $4::numeric::text AS cours,
+       (p.quantite * $4::numeric)::text AS valeur,
+       (p.quantite * $4::numeric - p.cout)::text AS performance,
+       CASE WHEN p.cout > 0
+            THEN ((p.quantite * $4::numeric - p.cout) / p.cout * 100)::text END
+           AS performance_pourcentage
+FROM position_finale p`;
+
+route('GET', '/api/crypto/mon-portefeuille/:id', async ({ req, params }) => {
+    const utilisateur = await exigerConnexion(req);
+    const idCrypto = decodeURIComponent(params.id).trim().toUpperCase();
+
+    const { rows: cryptos } = await db.requete(
+        'SELECT id, libelle, identifiant_coingecko FROM crypto WHERE id = $1',
+        [idCrypto]
+    );
+    if (!cryptos.length) throw new ErreurClient('Crypto introuvable', 404);
+    const crypto = cryptos[0];
+
+    // Sans cours, la position reste lisible : seules valeur et performance manquent
+    let marcheEur = null;
+    let coursIndisponible = null;
+    try {
+        marcheEur = await marche.cours('eur');
+    } catch (err) {
+        console.error('Cours indisponibles pour %s :', idCrypto, err.message);
+        coursIndisponible = err.message;
+    }
+    const cote = marcheEur
+        ? marcheEur.actifs.find((actif) => actif.symbole === idCrypto && actif.prix !== null)
+        : null;
+    if (marcheEur && !cote) coursIndisponible = `Aucun cours ${marcheEur.source} pour ${idCrypto}`;
+
+    const { rows } = await db.requete(SUIVI_POSITION, [
+        utilisateur.id,
+        idCrypto,
+        utilisateur.staking_acquisition === 'valeur_recue',
+        cote ? cote.prix : null,
+    ]);
+    const position = rows[0];
+    if (!position.operations) {
+        throw new ErreurClient('Aucune opération enregistrée sur cette crypto', 404);
+    }
+
+    return {
+        code: 200,
+        corps: {
+            id_crypto: crypto.id,
+            libelle: crypto.libelle,
+            identifiant_coingecko: crypto.identifiant_coingecko,
+            devise: 'EUR',
+            ...position,
+            variation_24h: cote ? cote.variation_24h : null,
+            staking_acquisition: utilisateur.staking_acquisition,
             source: marcheEur ? marcheEur.source : null,
             releve_le: marcheEur ? marcheEur.releve_le : null,
             cours_indisponible: coursIndisponible,

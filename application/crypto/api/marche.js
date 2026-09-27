@@ -137,10 +137,13 @@ async function cours(deviseDemandee, forcer) {
     return { ...donnees, provenance: 'source' };
 }
 
-// Evolution d'un cours sur les dernieres 24 heures, pour le graphique ouvert
-// au clic sur une carte. La source echantillonne la journee toutes les cinq
-// minutes : un cache de meme duree ne fait perdre aucun point du trace.
+// Evolution d'un cours sur une periode glissante : 24 heures pour le graphique
+// ouvert au clic sur une carte, jusqu'a un an sur la page d'une crypto. La
+// source echantillonne une journee toutes les cinq minutes, de 2 a 90 jours
+// toutes les heures, au-dela chaque jour : cinq minutes de cache ne font perdre
+// aucun point du trace court, et menagent le quota sur les traces longs.
 const URL_COINS = 'https://api.coingecko.com/api/v3/coins';
+const PERIODES_JOURS = [1, 7, 30, 90, 365];
 const DUREE_CACHE_HISTORIQUE = 5 * 60 * 1000;
 // Rafraichissement demande depuis le graphique : comme pour les cours, le cache
 // est raccourci sans etre supprime, ce qui protege la source d'un clic en rafale.
@@ -155,11 +158,20 @@ function erreurMarche(message, code) {
     return err;
 }
 
-async function historique(identifiantDemande, deviseDemandee, forcer) {
+async function historique(identifiantDemande, deviseDemandee, forcer, joursDemandes) {
     const devise = DEVISES_ACCEPTEES.includes(String(deviseDemandee || '').toLowerCase())
         ? String(deviseDemandee).toLowerCase()
         : 'eur';
     const actif = String(identifiantDemande || '').trim().toLowerCase();
+
+    // Periode absente : les 24 heures d'origine. Toute autre valeur que celles
+    // proposees est refusee plutot que transmise telle quelle a la source.
+    const jours = joursDemandes === undefined || joursDemandes === null || joursDemandes === ''
+        ? 1
+        : Number(joursDemandes);
+    if (!PERIODES_JOURS.includes(jours)) {
+        throw erreurMarche(`Période inconnue : ${PERIODES_JOURS.join(', ')} jours attendus`, 400);
+    }
 
     // L'identifiant vient du client : il ne devient une adresse sortante que
     // s'il figure au referentiel. Sans cette liste, n'importe quelle chaine
@@ -170,7 +182,7 @@ async function historique(identifiantDemande, deviseDemandee, forcer) {
         : ACTIFS_PAR_DEFAUT;
     if (!autorises.includes(actif)) throw erreurMarche('Crypto inconnue', 404);
 
-    const cle = `${actif}:${devise}`;
+    const cle = `${actif}:${devise}:${jours}`;
     const enCache = cacheHistorique.get(cle);
     const duree = forcer ? DUREE_CACHE_HISTORIQUE_FORCE : DUREE_CACHE_HISTORIQUE;
     if (enCache && Date.now() - enCache.horodatage < duree) {
@@ -179,7 +191,7 @@ async function historique(identifiantDemande, deviseDemandee, forcer) {
 
     const url = new URL(`${URL_COINS}/${encodeURIComponent(actif)}/market_chart`);
     url.searchParams.set('vs_currency', devise);
-    url.searchParams.set('days', '1');
+    url.searchParams.set('days', String(jours));
 
     let reponse;
     try {
@@ -204,9 +216,9 @@ async function historique(identifiantDemande, deviseDemandee, forcer) {
         throw erreurMarche('Reponse inattendue de la source des cours', 502);
     }
 
-    // La source deborde parfois de la fenetre demandee : on s'en tient aux
-    // dernieres 24 heures. Les prix restent en chaine, sans arrondi.
-    const depuis = Date.now() - JOUR_MS;
+    // La source deborde parfois de la fenetre demandee : on s'en tient a la
+    // periode choisie. Les prix restent en chaine, sans arrondi.
+    const depuis = Date.now() - jours * JOUR_MS;
     const points = brut.prices
         .filter((ligne) => Array.isArray(ligne)
             && Number.isFinite(ligne[0]) && ligne[0] >= depuis
@@ -218,11 +230,12 @@ async function historique(identifiantDemande, deviseDemandee, forcer) {
 
     if (!points.length) {
         if (enCache) return { ...enCache.donnees, provenance: 'cache_perime' };
-        throw erreurMarche('Aucun cours releve sur les dernieres 24 heures', 503);
+        throw erreurMarche('Aucun cours relevé sur la période demandée', 503);
     }
 
     const donnees = {
         actif,
+        jours,
         devise: devise.toUpperCase(),
         releve_le: new Date().toISOString(),
         source: 'CoinGecko',
@@ -293,4 +306,4 @@ async function logoActif(identifiant) {
     return actif ? actif.image : null;
 }
 
-module.exports = { cours, historique, catalogue, logoActif, viderCache, DEVISES_ACCEPTEES };
+module.exports = { cours, historique, catalogue, logoActif, viderCache, DEVISES_ACCEPTEES, PERIODES_JOURS };
