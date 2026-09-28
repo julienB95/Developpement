@@ -123,7 +123,7 @@
         enveloppe.className = 'tableau-defilant';
 
         var tableau = document.createElement('table');
-        tableau.className = 'tableau tableau-operations';
+        tableau.className = 'tableau tableau-operations tableau-cartes';
 
         var entete = document.createElement('tr');
         var colonnes = [
@@ -189,6 +189,12 @@
             });
             actions.appendChild(modifier);
             rangee.appendChild(actions);
+
+            // Sur téléphone, chaque ligne devient une carte : la cellule
+            // porte le titre de sa colonne, l'en-tête du tableau étant masqué
+            Array.prototype.forEach.call(rangee.children, function (td, rang) {
+                if (colonnes[rang].titre) td.dataset.libelle = colonnes[rang].titre;
+            });
 
             corps.appendChild(rangee);
         });

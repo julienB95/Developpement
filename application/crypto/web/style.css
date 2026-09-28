@@ -1738,3 +1738,165 @@ body.page-large main { max-width: 1720px; }
 
 .onglets-periode { margin: 0; min-width: 280px; }
 .onglets-periode .onglet { padding: 6px 10px; font-size: 14px; }
+
+/* --- Téléphone (Galaxy S21 : 360 px de large) ----------------------------- */
+
+/* La page défile d'elle-même au doigt : les colonnes empilées n'ont plus
+   besoin de leur propre défilement, qui piégerait le geste */
+@media (max-width: 780px) {
+    #liste-detentions,
+    #pv-contenu { max-height: none; padding-right: 0; }
+    .defilement-operations { max-height: 65vh; }
+}
+
+@media (max-width: 480px) {
+    /* En-tête : le signe de la marque suffit, et le bandeau passe à la ligne
+       plutôt que de déborder */
+    .marque-texte { display: none; }
+    .entete { padding: 10px 12px; gap: 8px; }
+    .entete-droite {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+        min-width: 0;
+    }
+    .encart-marche { gap: 8px; }
+    .encart-bloc { padding: 4px 8px; }
+    .horloge { gap: 8px; padding: 4px 8px; }
+    /* Seule l'heure de Paris reste : New York est lisible sur ordinateur */
+    .horloge-heure + .horloge-heure { display: none; }
+    .menu-deroulant { max-width: calc(100vw - 24px); }
+
+    /* Contenu */
+    main { padding: 18px 12px 40px; }
+    .espace,
+    .panneau { padding: 16px; }
+    .espace { margin-top: 20px; }
+    .disposition,
+    .colonne-laterale { gap: 16px; }
+    .bloc-titre { font-size: 19px; }
+    .pied { padding: 18px 12px; font-size: 13px; }
+
+    /* Onglets trop nombreux pour la largeur : ils défilent à l'horizontale */
+    .onglets-page,
+    .onglets-larges { max-width: none; overflow-x: auto; scrollbar-width: none; }
+    .onglets-page::-webkit-scrollbar { display: none; }
+    .onglets-page .onglet { flex: 0 0 auto; padding: 8px 12px; }
+    .onglets-periode { min-width: 0; width: 100%; }
+    .onglets-periode .onglet { padding: 6px 4px; }
+
+    /* Cartes de cours : un peu plus de deux à l'écran */
+    .carte-cours { width: 160px; }
+    .carte-cours-ouvrir { padding: 12px; }
+    .carte-prix { font-size: 17px; }
+    .grille-cours-popup { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+
+    /* Filtres : un champ par ligne */
+    .filtres > .champ-filtre { flex: 1 1 100%; }
+
+    /* Boîtes de dialogue : toute la largeur utile, défilement si le clavier
+       du téléphone réduit la hauteur */
+    .dialogue {
+        width: calc(100vw - 16px);
+        max-width: none;
+        max-height: calc(100dvh - 16px);
+        padding: 20px 16px;
+        overflow-y: auto;
+    }
+    .dialogue h2 { font-size: 20px; padding-right: 36px; }
+    .dialogue-large,
+    .dialogue-graphique { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+    .actions-dialogue { flex-direction: column-reverse; align-items: stretch; }
+    .actions-dialogue .bouton { width: 100%; }
+    .actions-dialogue .bouton-danger { margin-right: 0; }
+
+    /* Graphique : il tient dans la largeur plutôt que de défiler */
+    .graphique { min-width: 0; }
+    .graphique-prix { font-size: 18px; }
+
+    /* Indicateurs de la page d'une crypto : deux par ligne */
+    .indicateurs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .indicateur { padding: 12px; }
+    .indicateur-valeur { font-size: 17px; }
+
+    /* Déclaration */
+    .decl-case-texte { min-width: 0; flex-basis: 100%; }
+    .decl-case-montant { margin-left: 0; align-items: flex-start; }
+    .decl-case-valeur { font-size: 22px; }
+    .decl-legende dd { margin-left: 0; }
+
+    /* Tableaux d'opérations : chaque ligne devient une carte, chaque cellule
+       une ligne « libellé : valeur » (le libellé vient de data-libelle) */
+    .tableau-cartes { min-width: 0; }
+    .tableau-cartes thead { display: none; }
+    .tableau-cartes,
+    .tableau-cartes tbody,
+    .tableau-cartes tr,
+    .tableau-cartes td { display: block; width: 100%; }
+    .tableau-cartes tr {
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        border: 1px solid var(--bordure);
+        border-radius: var(--rayon);
+        background: var(--fond-carte);
+    }
+    .tableau-cartes tbody tr:last-child { margin-bottom: 0; }
+    .tableau-cartes tbody tr:hover { background: var(--fond-carte); }
+    .tableau-cartes td {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 4px 0;
+        text-align: right;
+        border-bottom: 0;
+    }
+    .tableau-cartes td[data-libelle]::before {
+        content: attr(data-libelle);
+        flex: 0 0 auto;
+        font-size: 13px;
+        color: var(--encre-douce);
+        text-align: left;
+    }
+    /* La crypto sert de titre à la carte */
+    .tableau-cartes td:first-child {
+        padding-bottom: 8px;
+        margin-bottom: 4px;
+        border-bottom: 1px solid var(--bordure);
+    }
+    .tableau-cartes td:first-child::before { content: none; }
+    .tableau-cartes .cellule-actions { justify-content: flex-end; padding-top: 8px; }
+    .tableau-cartes .cellule-actions .bouton { width: 100%; }
+    /* Le bloc défilant garde son en-tête collant pour les autres tableaux */
+    .defilement-operations .tableau-cartes thead th { position: static; }
+}
+
+/* --- Écrans tactiles : des cibles assez grandes pour le doigt ------------- */
+
+@media (pointer: coarse) {
+    .fleche,
+    .bouton-icone,
+    .devise { width: 40px; height: 40px; }
+    .fleche-mini { width: 36px; height: 36px; }
+    .encart-tout { width: 36px; height: 36px; }
+    .pastille { width: 40px; height: 40px; }
+    .pastille-petite { width: 32px; height: 32px; }
+    .dialogue-fermer { width: 40px; height: 40px; top: 8px; right: 8px; }
+    .bouton-petit { padding: 8px 14px; }
+    .menu-action { padding: 11px 12px; }
+    .champ-case-ligne input { width: 20px; height: 20px; }
+    .bascule-unite-choix,
+    .bascule-choix { padding: 4px 10px; }
+    .carte-rafraichir { bottom: 8px; }
+
+    /* Le glisser horizontal du doigt lit les valeurs du graphique,
+       le glisser vertical fait toujours défiler la page */
+    .graphique { touch-action: pan-y; }
+}
+
+/* Le survol reste « collé » après un toucher : réservé aux souris */
+@media (hover: none) {
+    .tableau tbody tr:hover { background: transparent; }
+    .carte-cours:hover,
+    .carte-actu:hover { border-color: var(--bordure); }
+}

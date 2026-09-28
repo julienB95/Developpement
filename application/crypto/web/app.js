@@ -467,6 +467,8 @@
         return String(montant).charAt(0) === '-' ? formate : '+' + formate;
     }
 
+    var COLONNES_OPERATIONS = ['Crypto', 'Date', 'Type', 'Quantité', 'Montant'];
+
     function construireTableau() {
         C.vider(operationsContenu);
 
@@ -474,10 +476,10 @@
         enveloppe.className = 'tableau-defilant';
 
         var tableau = document.createElement('table');
-        tableau.className = 'tableau tableau-operations';
+        tableau.className = 'tableau tableau-operations tableau-cartes';
 
         var entete = document.createElement('tr');
-        ['Crypto', 'Date', 'Type', 'Quantité', 'Montant'].forEach(function (titre, rang) {
+        COLONNES_OPERATIONS.forEach(function (titre, rang) {
             var th = document.createElement('th');
             th.scope = 'col';
             th.textContent = titre;
@@ -517,6 +519,12 @@
 
         rangee.appendChild(cellule(C.formaterQuantite(ligne.quantite), 'cellule-nombre'));
         rangee.appendChild(cellule(texteMontant(ligne.montant, 'EUR'), classeMontant(ligne.montant)));
+
+        // Sur téléphone, chaque ligne devient une carte : la cellule porte
+        // le titre de sa colonne, l'en-tête du tableau étant masqué
+        Array.prototype.forEach.call(rangee.children, function (td, rang) {
+            td.dataset.libelle = COLONNES_OPERATIONS[rang];
+        });
 
         return rangee;
     }

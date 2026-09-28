@@ -118,7 +118,14 @@
         pave.style.top = Math.round(haut) + 'px';
     }
 
+    // Sur écran tactile, le clavier numérique du téléphone s'ouvre déjà
+    // (inputmode decimal) : le pavé le doublerait et le recouvrirait.
+    function ecranTactile() {
+        return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+    }
+
     function attacher(champ) {
+        if (ecranTactile()) return;
         if (!pave) construire();
 
         champ.addEventListener('focus', function () {
