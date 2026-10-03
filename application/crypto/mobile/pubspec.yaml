@@ -4,7 +4,7 @@ publish_to: 'none'
 
 # version : nom affiché + numéro de compilation (versionCode Android).
 # Le numéro après le « + » doit augmenter à chaque APK distribué.
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: ^3.13.4
