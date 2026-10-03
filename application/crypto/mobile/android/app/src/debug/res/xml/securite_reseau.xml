@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Mode debug uniquement : l'API locale de développement est servie en HTTP.
+     10.0.2.2 désigne le PC hôte depuis l'émulateur ; localhost sert au téléphone
+     branché en USB après « adb reverse tcp:9998 tcp:9998 ». -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

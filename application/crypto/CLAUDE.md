@@ -60,6 +60,25 @@ pour tout ce qui se trouve dans `application/crypto/`.
 - Aucun texte inséré avec `innerHTML` : uniquement `textContent` et `createElement`
 - Le seul script externe autorisé est celui de Google Identity Services
 
+## Interface mobile
+
+- Flutter (Dart), un seul projet dans `mobile/` pour Android et, plus tard, iOS (`mobile/android/`, `mobile/ios/`)
+- Identifiant d'application `fr.boesel.crypto` : définitif sur le Play Store, ne jamais le changer
+- L'adresse de l'API est fixée à la compilation (`--dart-define=API_URL=https://...`), jamais écrite en dur ;
+  par défaut `http://10.0.2.2:9998` (API locale vue depuis l'émulateur)
+- HTTPS obligatoire en version publiée ; le HTTP en clair n'est permis qu'en debug,
+  pour `10.0.2.2` et `localhost` (`android/app/src/debug/res/xml/securite_reseau.xml`)
+- Le jeton de session est conservé dans `flutter_secure_storage` (Keystore Android), jamais en clair
+- Montants et quantités restent des chaînes décimales : calculs via `lib/outils/decimal.dart`,
+  jamais de `double` (seul le tracé des graphiques convertit, pour l'affichage)
+- La connexion Google passe le client web (`GET /configuration`) en `serverClientId` :
+  le jeton d'identité a la même audience que sur le site, l'API ne change pas
+- L'administration et la déclaration fiscale restent sur le site web
+- Flutter n'embarque aucun fichier hors de `mobile/` : les icônes de `mobile/assets/icone/` sont
+  générées depuis `_commun/image/logo.svg`, puis déclinées par `dart run flutter_launcher_icons`
+- La clé de signature (`.jks`) et `android/key.properties` ne sont jamais versionnés ;
+  à chaque APK distribué, le numéro après le `+` de `version` dans `pubspec.yaml` augmente
+
 ## Administration
 
 - Le droit d'administration est porté par la colonne `est_admin` de la table `utilisateur`

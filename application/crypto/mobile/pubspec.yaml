@@ -1,0 +1,43 @@
+name: crypto_mobile
+description: "Suivi crypto - application mobile"
+publish_to: 'none'
+
+# version : nom affiché + numéro de compilation (versionCode Android).
+# Le numéro après le « + » doit augmenter à chaque APK distribué.
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Fourni par le SDK Flutter : sélecteurs de date et libellés Material en français
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  http: ^1.6.0
+  flutter_secure_storage: ^11.2.0
+  google_sign_in: ^7.2.0
+  fl_chart: ^1.2.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+
+flutter:
+  uses-material-design: true
+  assets:
+    # Icône générée depuis ../_commun/image/logo.svg (Flutter n'embarque rien hors du projet)
+    - assets/icone/icone.png
+
+# Icônes de l'application : dart run flutter_launcher_icons
+flutter_launcher_icons:
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  image_path: assets/icone/icone.png
+  adaptive_icon_background: "#1f6f5c"
+  adaptive_icon_foreground: assets/icone/icone_avant_plan.png
+  adaptive_icon_monochrome: assets/icone/icone_avant_plan.png
