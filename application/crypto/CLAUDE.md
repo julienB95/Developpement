@@ -78,6 +78,10 @@ pour tout ce qui se trouve dans `application/crypto/`.
   générées depuis `_commun/image/logo.svg`, puis déclinées par `dart run flutter_launcher_icons`
 - La clé de signature (`.jks`) et `android/key.properties` ne sont jamais versionnés ;
   à chaque APK distribué, le numéro après le `+` de `version` dans `pubspec.yaml` augmente
+- Déploiements séparés : `/deploy web` met à jour l'API et le site sur le NAS,
+  `/deploy mobile` compile et signe l'APK (adresse d'API : `CRYPTO_MOBILE_API_URL` du `.env`) ;
+  une API modifiée est déployée avant l'application qui en dépend, et reste compatible
+  avec les versions de l'application déjà installées
 
 ## Administration
 

@@ -38,7 +38,10 @@
 
     var position = null;
     var unite = lireUnite();
+    // L'API ne connaît que des jours entiers : la période « 1 h » demande l'historique
+    // sur 24 h, échantillonné toutes les cinq minutes, et n'en garde que la dernière heure.
     var joursCourants = 1;
+    var heuresCourantes = null;
     var demandeGraphique = 0;
 
     function afficherErreurPage(message) {
@@ -132,14 +135,29 @@
     }
 
     // --- Graphique --------------------------------------------------------
-    function choisirPeriode(jours) {
-        joursCourants = jours;
+    function choisirPeriode(boutonChoisi) {
+        joursCourants = Number(boutonChoisi.dataset.jours);
+        heuresCourantes = boutonChoisi.dataset.heures ? Number(boutonChoisi.dataset.heures) : null;
         boutonsPeriode.forEach(function (bouton) {
-            var actif = Number(bouton.dataset.jours) === jours;
+            var actif = bouton === boutonChoisi;
             bouton.classList.toggle('actif', actif);
             bouton.setAttribute('aria-pressed', String(actif));
         });
         tracer();
+    }
+
+    // Fin de l'historique, mesurée depuis le dernier point reçu et non depuis
+    // l'heure du poste : la réponse peut venir du cache de l'API.
+    function dernieresHeures(points, heures) {
+        if (!heures || !points.length) return points;
+        var depuis = new Date(points[points.length - 1].horodatage).getTime() - heures * 3600000;
+        return points.filter(function (point) { return new Date(point.horodatage).getTime() >= depuis; });
+    }
+
+    function libelleCourant(jours, heures) {
+        if (heures === 1) return 'la dernière heure';
+        if (heures) return 'les ' + heures + ' dernières heures';
+        return M.libellePeriode(jours);
     }
 
     function tracer() {
@@ -148,6 +166,7 @@
         // Un clic rapide sur plusieurs périodes : seule la dernière réponse compte
         var numero = ++demandeGraphique;
         var jours = joursCourants;
+        var heures = heuresCourantes;
 
         C.vider(graphique.zone);
         graphique.pied.hidden = true;
@@ -165,7 +184,13 @@
             .then(function (resultat) {
                 if (numero !== demandeGraphique) return;
 
-                var points = resultat.points;
+                var points = dernieresHeures(resultat.points, heures);
+                if (points.length < 2) {
+                    graphique.etat.className = 'aide';
+                    graphique.etat.textContent = 'Pas assez de cours sur ' + libelleCourant(jours, heures)
+                        + ' pour tracer le graphique.';
+                    return;
+                }
                 var hausse = points.length > 1
                     ? Number(points[points.length - 1].prix) >= Number(points[0].prix)
                     : null;
@@ -173,7 +198,7 @@
                 var trace = M.tracerGraphique(points, resultat.devise, hausse, jours);
                 graphique.zone.appendChild(trace.svg);
 
-                graphique.etat.textContent = 'Cours sur ' + M.libellePeriode(jours)
+                graphique.etat.textContent = 'Cours sur ' + libelleCourant(jours, heures)
                     + ' · source ' + resultat.source + ' · relevé ' + M.ilYA(resultat.releve_le);
                 graphique.bornes.textContent = 'Plus bas ' + C.formaterMontant(trace.mini, resultat.devise)
                     + ' · plus haut ' + C.formaterMontant(trace.maxi, resultat.devise);
@@ -217,7 +242,7 @@
     });
 
     boutonsPeriode.forEach(function (bouton) {
-        bouton.addEventListener('click', function () { choisirPeriode(Number(bouton.dataset.jours)); });
+        bouton.addEventListener('click', function () { choisirPeriode(bouton); });
     });
 
     // --- Chargement -------------------------------------------------------

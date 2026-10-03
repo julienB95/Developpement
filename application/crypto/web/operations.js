@@ -114,7 +114,7 @@
         if (!donnees.lignes.length) {
             return messageContenu(donnees.total
                 ? 'Aucune opération sur cette page.'
-                : 'Utilisez le bouton + pour enregistrer votre première opération.');
+                : 'Utilisez le bouton « Ajouter une opération » pour enregistrer votre première opération.');
         }
 
         C.vider(contenu);

@@ -8,7 +8,24 @@ import '../outils/format.dart';
 import 'chargement.dart';
 import 'elements.dart';
 
-const Map<int, String> _periodes = {1: '24 h', 7: '7 j', 30: '1 mois', 90: '3 mois', 365: '1 an'};
+/// Période proposée. L'API ne connaît que des jours entiers : la dernière heure
+/// est extraite de l'historique sur 24 h, échantillonné toutes les cinq minutes.
+class _Periode {
+  final String libelle;
+  final int jours;
+  final Duration? limite;
+
+  const _Periode(this.libelle, this.jours, [this.limite]);
+}
+
+const List<_Periode> _periodes = [
+  _Periode('1 h', 1, Duration(hours: 1)),
+  _Periode('24 h', 1),
+  _Periode('7 j', 7),
+  _Periode('1 mois', 30),
+  _Periode('3 mois', 90),
+  _Periode('1 an', 365),
+];
 
 /// Historique du cours d'une crypto, avec choix de la période.
 /// [actif] est l'identifiant CoinGecko (« bitcoin »), pas le symbole.
@@ -24,18 +41,20 @@ class GraphiqueHistorique extends StatefulWidget {
 }
 
 class _GraphiqueHistoriqueState extends State<GraphiqueHistorique> {
-  int _jours = 7;
+  _Periode _periode = _periodes[1]; // 24 h, comme sur le site
   late Future<Historique> _futur = _charger();
 
   Future<Historique> _charger() async => Historique.json(await widget.api.lire(
         '/marche/historique/${Uri.encodeComponent(widget.actif)}',
-        {'jours': _jours, 'devise': widget.devise},
+        {'jours': _periode.jours, 'devise': widget.devise},
       ) as Map<String, dynamic>);
 
-  void _choisir(int jours) {
+  void _choisir(_Periode periode) {
+    final memesDonnees = periode.jours == _periode.jours;
     setState(() {
-      _jours = jours;
-      _futur = _charger();
+      _periode = periode;
+      // 1 h et 24 h partagent le même historique : inutile de le redemander
+      if (!memesDonnees) _futur = _charger();
     });
   }
 
@@ -49,13 +68,13 @@ class _GraphiqueHistoriqueState extends State<GraphiqueHistorique> {
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
             children: [
-              for (final periode in _periodes.entries)
+              for (final periode in _periodes)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   child: ChoiceChip(
-                    label: Text(periode.value),
-                    selected: _jours == periode.key,
-                    onSelected: (_) => _choisir(periode.key),
+                    label: Text(periode.libelle),
+                    selected: identical(_periode, periode),
+                    onSelected: (_) => _choisir(periode),
                   ),
                 ),
             ],
@@ -70,9 +89,12 @@ class _GraphiqueHistoriqueState extends State<GraphiqueHistorique> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (instantane.hasError) {
-                return MessageErreur(erreur: instantane.error!, surReessai: () => _choisir(_jours));
+                return MessageErreur(
+                  erreur: instantane.error!,
+                  surReessai: () => setState(() => _futur = _charger()),
+                );
               }
-              return _Courbe(historique: instantane.data!);
+              return _Courbe(historique: instantane.data!, limite: _periode.limite);
             },
           ),
         ),
@@ -83,12 +105,22 @@ class _GraphiqueHistoriqueState extends State<GraphiqueHistorique> {
 
 class _Courbe extends StatelessWidget {
   final Historique historique;
+  final Duration? limite;
 
-  const _Courbe({required this.historique});
+  const _Courbe({required this.historique, this.limite});
+
+  /// Garde la fin de l'historique, mesurée depuis le dernier point reçu
+  /// (et non depuis l'heure du téléphone, pour rester juste avec un cache).
+  List<PointHistorique> _points() {
+    final tous = historique.points;
+    if (limite == null || tous.isEmpty) return tous;
+    final depuis = lireDate(tous.last.horodatage)!.subtract(limite!);
+    return tous.where((point) => !lireDate(point.horodatage)!.isBefore(depuis)).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final points = historique.points;
+    final points = _points();
     if (points.length < 2) {
       return const Center(child: Text('Pas assez de points pour tracer la courbe.'));
     }

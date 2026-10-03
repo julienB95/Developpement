@@ -192,7 +192,7 @@
 
         <div class="colonne-principale">
             <section class="espace">
-                <div class="bloc-entete">
+                <div class="bloc-entete bloc-entete-centre">
                     <h2 class="bloc-titre">
                         <svg class="bloc-icone" viewBox="0 0 24 24" aria-hidden="true">
                             <path d="M4 6h16M4 12h16M4 18h10"></path>
@@ -201,6 +201,10 @@
                         <span class="compteur" id="operations-total"
                               title="Nombre total d'opérations enregistrées" hidden></span>
                     </h2>
+
+                    <button type="button" class="bouton bouton-principal bloc-action-centre" id="bouton-ajout-operation">
+                        + Ajouter une opération
+                    </button>
 
                     <div class="bloc-outils">
                         <a class="bouton bouton-discret" href="/operations.html">Filtrer les opérations</a>
@@ -216,13 +220,6 @@
                 </div>
 
                 <p class="aide etat-suite" id="operations-etat" role="status"></p>
-
-                <div class="zone-ajout">
-                    <button type="button" class="bouton-rond" id="bouton-ajout-operation"
-                            title="Ajouter une opération" aria-label="Ajouter une opération">
-                        <span aria-hidden="true">+</span>
-                    </button>
-                </div>
             </section>
         </div>
     </div>

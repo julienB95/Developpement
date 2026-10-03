@@ -540,7 +540,7 @@
         if (donnees.page === 1) {
             if (!donnees.lignes.length) {
                 return messageOperations(
-                    'Aucune opération enregistrée. Utilisez le bouton + pour en ajouter une.'
+                    'Aucune opération enregistrée. Utilisez le bouton « Ajouter une opération » pour en saisir une.'
                 );
             }
             construireTableau();

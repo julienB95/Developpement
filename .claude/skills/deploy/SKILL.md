@@ -1,9 +1,11 @@
 ---
 name: deploy
-description: Deploie la version courante du site crypto sur le NAS - pousse le depot, met a jour le clone du NAS, reconstruit le conteneur et controle la sante du site
+description: Deploie l'application crypto - "web" met a jour l'API et le site sur le NAS, "mobile" compile, signe et installe l'APK Android
+argument-hint: web | mobile
+arguments: [cible]
 disable-model-invocation: true
 shell: powershell
-allowed-tools: Bash, PowerShell, Read
+allowed-tools: Bash, PowerShell, Read, AskUserQuestion
 ---
 
 ## Etat local
@@ -20,46 +22,22 @@ git log --oneline -3
 git status --branch --porcelain=v2 | Select-String "^# branch.ab"
 ```
 
-## Instructions
+## Cible demandee : $cible
 
-Deploie la version courante sur le NAS. Les parametres de connexion sont dans le `.env`
-de la racine : `NAS_HOTE`, `NAS_UTILISATEUR`, `NAS_PORT_SSH`, `NAS_CHEMIN`.
-Ne les affiche pas dans tes reponses et ne lis aucune autre variable du `.env`.
+Selon la cible, lis puis suis exactement l'une de ces procedures :
 
-1. **Refuse de deployer** si `git status --short` n'est pas vide : signale les fichiers
-   concernes et arrete-toi. Ne commit jamais de ta propre initiative.
+- `web` : [web.md](web.md) - API et site web, deployes ensemble sur le NAS (Docker)
+- `mobile` : [mobile.md](mobile.md) - application Android, compilee en APK signe
 
-2. Si la branche est en avance sur `origin`, pousse-la (`git push`). Le NAS deploie
-   depuis GitHub : sans push, il redeploierait l'ancienne version.
+Les deux sont independantes : un deploiement web ne republie jamais l'application,
+et une publication mobile ne touche jamais au NAS.
 
-3. Mets a jour et reconstruis sur le NAS, en une seule connexion :
+Si la cible est vide ou differente de `web` et `mobile`, ne deploie rien : demande
+laquelle des deux est voulue.
 
-   ```
-   ssh -p <NAS_PORT_SSH> <NAS_UTILISATEUR>@<NAS_HOTE> "cd <NAS_CHEMIN> && git pull --ff-only && cd application/crypto && sudo /usr/local/bin/docker compose build --build-arg VERSION_COMMIT=\$(git rev-parse --short HEAD) --build-arg VERSION_DATE=\$(git log -1 --format=%cI) --build-arg DEPLOYE_LE=\$(date -u +%Y-%m-%dT%H:%M:%SZ) && sudo /usr/local/bin/docker compose up -d && sudo /usr/local/bin/docker compose ps"
-   ```
+Regles communes :
 
-   `git pull` ne touche pas au `.env` de production : il n'est pas versionne.
-   Les `\$(...)` doivent etre evalues sur le NAS, pas sur le poste : ils donnent la version
-   et la date de deploiement affichees dans le menu du compte. `sudo` ne transmet pas
-   l'environnement, d'ou les `--build-arg` plutot que des variables exportees.
-
-4. Controle la sante du site, toujours par SSH :
-
-   ```
-   ssh -p <NAS_PORT_SSH> <NAS_UTILISATEUR>@<NAS_HOTE> "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9998/api/crypto/sante"
-   ```
-
-   Un code autre que 200 signifie que l'API ne repond pas ou que PostgreSQL est injoignable.
-
-5. En cas d'echec a l'etape 3 ou 4, recupere les journaux et arrete-toi :
-
-   ```
-   ssh -p <NAS_PORT_SSH> <NAS_UTILISATEUR>@<NAS_HOTE> "cd <NAS_CHEMIN>/application/crypto && sudo /usr/local/bin/docker compose logs --tail 50 crypto"
-   ```
-
-6. Resume en quelques lignes : le commit deploye, l'etat du conteneur et le code de sante.
-   Signale toute anomalie sans la corriger tant que je ne l'ai pas demande.
-
-Si le schema de la base a change depuis le dernier deploiement, previens-moi :
-la migration se lance a part, `sudo /usr/local/bin/docker compose run --rm crypto node application/crypto/api/migrer.js`,
-et elle n'est jamais declenchee automatiquement par ce deploiement.
+- Ne commit jamais de ta propre initiative, meme pour un simple changement de version
+- Les valeurs du `.env` ne sont jamais affichees dans tes reponses
+- Resume a la fin en quelques lignes et signale toute anomalie sans la corriger
+  tant que je ne l'ai pas demande
