@@ -109,8 +109,9 @@ END $$;
 -- Valeurs quotidiennes
 -- --------------------------------------------------------------------------
 
--- Une ligne par crypto et par jour. Le VWAP est la valeur de référence retenue :
--- c'est la cotation moyenne journalière admise par le BOFiP pour la déclaration.
+-- Une ligne par crypto et par jour. La déclaration retient le cours d'ouverture
+-- (0 h UTC), comme Waltio, pour que sa déclaration puisse être recoupée ; le VWAP,
+-- cotation moyenne journalière pondérée par les volumes, reste conservé.
 -- La bougie complète est conservée parce qu'elle arrive dans la même réponse d'API
 -- et qu'elle sera irrécupérable si la paire disparaît de la plateforme.
 CREATE TABLE IF NOT EXISTS crypto_valeur (

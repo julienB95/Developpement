@@ -15,10 +15,12 @@
 //     parcourir toutes les cessions depuis l'origine, pas seulement celles de
 //     l'annee demandee ;
 //   - la valeur globale du portefeuille est celle de TOUTES les cryptos
-//     detenues au moment de la cession, au VWAP du jour releve dans
-//     crypto_valeur. Une crypto detenue mais non valorisee la sous-evalue,
-//     ce qui gonfle la fraction imputee et minore la plus-value : ce cas est
-//     signale, jamais tu ;
+//     detenues au moment de la cession : la crypto cedee a son prix de
+//     cession reel, les autres a leur cours d'ouverture du jour (0 h UTC)
+//     releve dans crypto_valeur. C'est la convention de Waltio, retenue pour
+//     que sa declaration puisse etre recoupee ici. Une crypto detenue mais non
+//     valorisee sous-evalue le portefeuille, ce qui gonfle la fraction
+//     imputee et minore la plus-value : ce cas est signale, jamais tu ;
 //   - le prix de cession et le prix d'acquisition sont les montants reellement
 //     encaisses et payes, jamais un cours de marche.
 //
@@ -81,14 +83,19 @@ SELECT c.id,
          WHERE (a.type = 'achat' OR (a.type = 'staking' AND $2))
            AND a.prix_unitaire IS NULL
            AND (a.horodatage, a.id) <= (c.horodatage, c.id)) AS achats_sans_prix,
-       (SELECT COALESCE(SUM(v.quantite * cv.vwap), 0)
+       -- La crypto cedee vaut son prix de cession reel, les autres leur cours
+       -- d'ouverture du jour. Une cession sans prix est deja signalee par
+       -- ailleurs : sa crypto n'est pas comptee une seconde fois.
+       (SELECT COALESCE(SUM(v.quantite * CASE WHEN v.id_crypto = c.id_crypto
+                                              THEN c.prix_unitaire
+                                              ELSE cv.ouverture END), 0)
           FROM avoirs v
-          JOIN crypto_valeur cv ON cv.id_crypto = v.id_crypto AND cv.date = c.jour
-         WHERE v.cession = c.id AND cv.vwap IS NOT NULL)::text AS valeur_globale,
+          LEFT JOIN crypto_valeur cv ON cv.id_crypto = v.id_crypto AND cv.date = c.jour
+         WHERE v.cession = c.id)::text AS valeur_globale,
        (SELECT count(*)::int
           FROM avoirs v
           LEFT JOIN crypto_valeur cv ON cv.id_crypto = v.id_crypto AND cv.date = c.jour
-         WHERE v.cession = c.id AND (cv.id_crypto IS NULL OR cv.vwap IS NULL))
+         WHERE v.cession = c.id AND v.id_crypto <> c.id_crypto AND cv.ouverture IS NULL)
            AS valorisations_manquantes
 FROM ops c
 JOIN crypto r ON r.id = c.id_crypto
@@ -151,7 +158,7 @@ function reserves(ligne) {
         motifs.push(`${ligne.achats_sans_prix} ligne(s) sans prix d'acquisition`);
     }
     if (ligne.valorisations_manquantes > 0) {
-        motifs.push(`${ligne.valorisations_manquantes} crypto(s) détenue(s) sans valeur au ${ligne.jour}`);
+        motifs.push(`${ligne.valorisations_manquantes} crypto(s) détenue(s) sans cours d'ouverture au ${ligne.jour}`);
     }
     return motifs;
 }

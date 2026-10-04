@@ -2,8 +2,9 @@
 // marchés en euro, dans cet ordre : Binance, Kraken, Bitstamp.
 //
 // Le VWAP est le quotient du volume échangé en euro par le volume échangé en
-// crypto : c'est la cotation moyenne journalière pondérée par les volumes,
-// celle que le BOFiP admet pour valoriser un portefeuille au moment d'une cession.
+// crypto : c'est la cotation moyenne journalière pondérée par les volumes. La
+// déclaration, elle, retient le cours d'ouverture de la bougie (0 h UTC), comme
+// Waltio : voir plusvalues.js. Le reste de la bougie est conservé pour référence.
 // Binance fournit les deux volumes, le VWAP est calculé ici ; Kraken fournit le
 // VWAP lui-même, repris tel quel ; Bitstamp ne donne ni l'un ni l'autre, le VWAP
 // est reconstitué à partir de ses 24 bougies horaires.

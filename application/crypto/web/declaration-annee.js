@@ -21,7 +21,7 @@
           aide: 'Jour de la vente, heure de Paris.' },
         { cle: 'l212', numero: '212', court: 'Valeur du portefeuille',
           libelle: 'Valeur globale du portefeuille au moment de la cession',
-          aide: 'Valeur de toutes les cryptos détenues juste avant la vente, au cours moyen du jour (Binance, à défaut Kraken ou Bitstamp).' },
+          aide: 'Valeur de toutes les cryptos détenues juste avant la vente : la crypto vendue à son prix de vente réel, les autres à leur cours d’ouverture du jour (0 h UTC, Binance, à défaut Kraken ou Bitstamp), comme le calcule Waltio.' },
         { cle: 'l213', numero: '213', court: 'Prix de cession',
           libelle: 'Prix de cession',
           aide: 'Montant de la vente, avant déduction des frais.' },

@@ -19,8 +19,8 @@
 
     // Ce que le type change au-delà de son libellé, dit à la saisie
     var NOTES = {
-        vente: "À l'enregistrement d'une vente, la valeur moyenne du jour de toutes vos "
-            + 'cryptos est relevée et conservée pour la déclaration.',
+        vente: "À l'enregistrement d'une vente, le cours d'ouverture du jour de toutes vos "
+            + 'cryptos est relevé et conservé pour la déclaration.',
         staking: 'Une récompense de staking entre au portefeuille comme un achat, mais '
             + "sans frais et sans prix d'acquisition : elle n'a rien coûté.",
     };
