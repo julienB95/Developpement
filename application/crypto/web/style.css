@@ -1277,7 +1277,8 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
 /* --- Page élargie hors connexion et en administration -------------------- */
 /* Sans espace connecté à afficher, les blocs défilants n'ont aucune raison
    de rester dans la colonne de lecture : ils prennent la largeur disponible,
-   ce qui met simplement plus de cartes à l'écran. */
+   ce qui met simplement plus de cartes à l'écran. La synthèse de déclaration
+   en profite aussi, pour montrer le formulaire 2086 sans défilement. */
 
 body.page-large main { max-width: 1720px; }
 
