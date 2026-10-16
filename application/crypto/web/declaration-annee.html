@@ -85,8 +85,8 @@
             <div id="report-contenu"></div>
         </section>
 
-        <!-- Le formulaire 2086 : une colonne par cession sur le formulaire,
-             une ligne par cession ici -->
+        <!-- Le formulaire 2086 présenté comme en ligne : une colonne par
+             cession, cinq par page, une ligne par case -->
         <section class="espace" aria-labelledby="titre-2086">
             <div class="bloc-entete">
                 <h2 class="bloc-titre" id="titre-2086">
@@ -99,18 +99,31 @@
             </div>
 
             <p class="aide decl-note">
-                Sur le formulaire, chaque cession occupe une colonne : reportez chaque
-                ligne de ce tableau dans la colonne suivante, case par case. Les montants
-                sont arrondis à l'euro, comme le demande le formulaire.
+                Comme sur le formulaire en ligne, chaque cession occupe une colonne,
+                cinq par page : reportez les valeurs case par case. Un double-clic sur
+                une valeur, date comprise, la copie telle quelle ; il ne reste qu'à la
+                coller. Les montants sont arrondis à l'euro et écrits sans espace ; le
+                symbole € n'est pas copié. Seules les lignes 211 à 214, 220 et 221 sont à
+                saisir : les autres sont calculées par le formulaire, et ce tableau les
+                calcule de la même façon.
             </p>
 
             <div class="tableau-defilant">
                 <table class="tableau tableau-2086" id="tableau-2086">
                     <thead id="tete-2086"></thead>
                     <tbody id="corps-2086"></tbody>
-                    <tfoot id="pied-2086"></tfoot>
                 </table>
             </div>
+
+            <nav class="pagination" id="pagination-2086" aria-label="Pages du formulaire 2086" hidden>
+                <button type="button" class="fleche" id="precedent-2086" aria-label="Cessions précédentes">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 4l-8 8 8 8"></path></svg>
+                </button>
+                <span class="pagination-position" id="position-2086"></span>
+                <button type="button" class="fleche" id="suivant-2086" aria-label="Cessions suivantes">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4l8 8-8 8"></path></svg>
+                </button>
+            </nav>
         </section>
 
         <!-- Ce que recouvre chaque ligne du formulaire -->

@@ -1630,9 +1630,18 @@ body.page-large main { max-width: 1720px; }
     font-size: 14px;
 }
 
-/* Le formulaire 2086 : une vente par ligne, les numéros de ligne en tête */
-.tableau-2086 { min-width: 1500px; }
-.tableau-2086 thead th { vertical-align: bottom; white-space: normal; line-height: 1.25; }
+/* Le formulaire 2086 comme en ligne : une colonne par cession, cinq par page,
+   une ligne par case. Largeurs fixes : les pages se suivent sans que les
+   colonnes bougent. */
+.tableau-2086 { table-layout: fixed; max-width: 1240px; min-width: 900px; }
+.tableau-2086 thead th {
+    vertical-align: bottom;
+    white-space: normal;
+    line-height: 1.25;
+    text-transform: none;
+    letter-spacing: 0;
+}
+.tableau-2086 thead .decl-ligne { width: 330px; }
 
 .ligne-2086 {
     display: inline-block;
@@ -1647,36 +1656,71 @@ body.page-large main { max-width: 1720px; }
     text-align: center;
     font-variant-numeric: tabular-nums;
 }
-.tableau-2086 thead .ligne-2086 { display: block; margin-left: auto; width: fit-content; }
-.ligne-2086-libelle { display: block; font-size: 12px; font-weight: 500; }
-
-/* La vente reste visible quand le tableau défile à l'horizontale */
-.tableau-2086 .decl-vente {
+/* La case reste visible quand le tableau défile à l'horizontale */
+.tableau-2086 .decl-ligne {
     position: sticky;
     left: 0;
     z-index: 1;
     background: var(--fond-carte);
     text-align: left;
-    white-space: nowrap;
 }
-.tableau-2086 tbody tr:hover .decl-vente { background: var(--fond); }
+.tableau-2086 tbody tr:hover .decl-ligne { background: var(--fond); }
+.decl-ligne .ligne-2086 { margin: 0 10px 0 0; vertical-align: middle; }
+.decl-ligne-libelle { font-weight: 500; }
 
-.decl-numero { min-width: 30px; font-size: 12px; color: var(--encre-douce); font-variant-numeric: tabular-nums; }
+/* En-tête de colonne : le numéro de cession, puis la crypto vendue */
+.decl-cession { text-align: right; }
+.decl-cession-numero { display: block; color: var(--encre); font-weight: 700; }
+.decl-cession-crypto { display: inline-flex; align-items: center; gap: 8px; margin-top: 6px; text-align: left; }
 .decl-vente-texte { display: flex; flex-direction: column; line-height: 1.2; }
-.decl-vente-crypto { font-weight: 600; }
+.decl-vente-crypto { font-weight: 600; color: var(--encre); }
 .decl-vente-quantite { font-size: 12px; font-weight: 400; color: var(--encre-douce); font-variant-numeric: tabular-nums; }
+
+/* Les blocs du formulaire : 213 à 218, 220 à 223, puis le résultat */
+.tableau-2086 .decl-groupe th,
+.tableau-2086 .decl-groupe td { border-top: 2px solid var(--bordure); }
 
 .tableau-2086 td { white-space: nowrap; }
 .decl-pv { font-weight: 700; }
 
-.decl-incomplete td { background: #fdf3f2; }
+.tableau-2086 .decl-incomplete { background: #fdf3f2; }
 
-.decl-total th,
-.decl-total td {
-    border-top: 2px solid var(--bordure);
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
+/* Valeur à reporter sur impots.gouv.fr : un double-clic la sélectionne en
+   entier, signe et barres de la date compris, puis la copie. Le symbole €
+   reste hors de la sélection. */
+.valeur-copiable {
+    -webkit-user-select: all;
+    user-select: all;
+    padding: 1px 3px;
+    border-radius: 4px;
+    cursor: copy;
+    transition: background-color 0.2s;
 }
+.valeur-copiable:hover { background: var(--fond); }
+.valeur-copiee,
+.valeur-copiee:hover { background: var(--accent-clair); color: var(--accent-fonce); }
+.montant-unite { color: var(--encre-douce); -webkit-user-select: none; user-select: none; }
+
+/* Toast de confirmation, en bas de l'écran : vert après une copie, rouge
+   quand le navigateur la refuse */
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: 28px;
+    z-index: 50;
+    padding: 10px 18px;
+    color: #fff;
+    background: #2f9e6b;
+    border-radius: var(--rayon);
+    box-shadow: 0 6px 18px rgba(22, 32, 44, 0.18);
+    font-weight: 600;
+    opacity: 0;
+    transform: translate(-50%, 8px);
+    transition: opacity 0.2s, transform 0.2s;
+    pointer-events: none;
+}
+.toast-visible { opacity: 1; transform: translate(-50%, 0); }
+.toast-erreur { background: var(--alerte); }
 
 /* Légende des lignes du formulaire */
 .decl-legende { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px 0; }

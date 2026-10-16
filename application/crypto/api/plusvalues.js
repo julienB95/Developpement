@@ -367,7 +367,48 @@ async function parAnnee(utilisateurId, annee, simulation) {
     return resultat;
 }
 
-// Une ligne par annee de cession, de la plus recente a la plus ancienne
+// Le formulaire en ligne recalcule lui-meme ses lignes 215, 217, 218, 223 et
+// 224 a partir des montants saisis, arrondis a l'euro, et ces cases ne se
+// modifient pas : ce sont ses chiffres qui partent en case 3AN ou 3BN. La
+// declaration les reproduit a l'identique ; seules les lignes saisies (212 a
+// 214, 220 et 221) viennent du calcul exact. ROUND arrondit a l'euro le plus
+// proche, la moitie s'eloignant de zero. Sans soulte, 216 et 222 valent zero.
+const FORMULAIRE = `
+SELECT f.rang,
+       f.l212::text AS l212,
+       f.l213::text AS l213,
+       f.l214::text AS l214,
+       (f.l213 - f.l214)::text AS l215,
+       f.l213::text AS l217,
+       (f.l213 - f.l214)::text AS l218,
+       f.l220::text AS l220,
+       f.l221::text AS l221,
+       (f.l220 - f.l221)::text AS l223,
+       CASE WHEN f.l212 > 0
+            THEN round((f.l213 - f.l214) - (f.l220 - f.l221) * f.l213 / f.l212)::text
+       END AS l224
+FROM (SELECT x.rang, round(x.l212) AS l212, round(x.l213) AS l213, round(x.l214) AS l214,
+             round(x.l220) AS l220, round(x.l221) AS l221
+        FROM unnest($1::int[], $2::numeric[], $3::numeric[], $4::numeric[],
+                    $5::numeric[], $6::numeric[]) AS x(rang, l212, l213, l214, l220, l221)) f
+ORDER BY f.rang`;
+
+// Les cases du 2086 d'une serie de cessions, telles que le formulaire les calcule
+async function formulaire(cessions) {
+    if (!cessions.length) return [];
+    const { rows } = await db.requete(FORMULAIRE, [
+        cessions.map((c, rang) => rang),
+        cessions.map((c) => c.valeur_globale),
+        cessions.map((c) => c.prix_brut),
+        cessions.map((c) => c.frais),
+        cessions.map((c) => c.acquisition),
+        cessions.map((c) => c.fractions_anterieures),
+    ]);
+    return rows;
+}
+
+// Une ligne par annee de cession, de la plus recente a la plus ancienne. La
+// plus-value est celle du formulaire, comme dans la declaration de l'annee.
 async function parAnnees(utilisateurId) {
     const { staking, cessions } = await derouler(utilisateurId);
 
@@ -375,12 +416,12 @@ async function parAnnees(utilisateurId) {
     const resultat = [];
     for (const annee of annees) {
         const lignes = cessions.filter((c) => c.annee === annee);
-        const calculees = lignes.filter((c) => c.plus_value !== null);
+        const calculees = (await formulaire(lignes)).filter((l) => l.l224 !== null);
         resultat.push({
             annee,
             cessions: lignes.length,
             prix_cession: await somme(lignes.map((c) => c.prix_brut).filter(Boolean)),
-            plus_value: calculees.length ? await somme(calculees.map((c) => c.plus_value)) : null,
+            plus_value: calculees.length ? await somme(calculees.map((l) => l.l224)) : null,
             complet: lignes.every((c) => c.complet),
         });
     }
@@ -389,12 +430,13 @@ async function parAnnees(utilisateurId) {
 }
 
 // Ce qu'il faut reporter sur la declaration de l'annee : le detail du
-// formulaire 2086, cession par cession, et le total a porter sur la 2042-C.
-// Il n'y a ni echange entre cryptos ni soulte ici : les lignes 216 et 222
-// valent zero, et la ligne 217 reprend donc la ligne 213.
+// formulaire 2086, cession par cession, tel que le formulaire le calcule, et
+// le total a porter sur la 2042-C. Il n'y a ni echange entre cryptos ni soulte
+// ici : les lignes 216 et 222 valent zero, et la ligne 217 reprend la 213.
 async function declaration(utilisateurId, annee) {
     const { staking, cessions } = await derouler(utilisateurId);
     const retenues = cessions.filter((c) => c.annee === annee);
+    const cases = await formulaire(retenues);
 
     const lignes = retenues.map((c, rang) => ({
         numero: rang + 1,
@@ -403,25 +445,29 @@ async function declaration(utilisateurId, annee) {
         quantite: c.quantite,
         horodatage: c.horodatage,
         l211: c.jour,
-        l212: c.valeur_globale,
-        l213: c.prix_brut,
-        l214: c.frais,
-        l215: c.prix_cession,
+        l212: cases[rang].l212,
+        l213: cases[rang].l213,
+        l214: cases[rang].l214,
+        l215: cases[rang].l215,
         l216: '0',
-        l217: c.prix_brut,
-        l218: c.prix_cession,
-        l220: c.acquisition,
-        l221: c.fractions_anterieures,
+        l217: cases[rang].l217,
+        l218: cases[rang].l218,
+        l220: cases[rang].l220,
+        l221: cases[rang].l221,
         l222: '0',
-        l223: c.acquisition_nette,
-        l224: c.plus_value,
+        l223: cases[rang].l223,
+        l224: cases[rang].l224,
         complet: c.complet,
         reserves: c.reserves,
     }));
 
     const calculees = lignes.filter((l) => l.l224 !== null);
     const plusValue = calculees.length ? await somme(calculees.map((l) => l.l224)) : null;
-    const prixCession = await somme(lignes.map((l) => l.l213).filter(Boolean));
+    // Le meme total sans les arrondis du formulaire, pour memoire
+    const exactes = retenues.filter((c) => c.plus_value !== null);
+    const plusValueExacte = exactes.length ? await somme(exactes.map((c) => c.plus_value)) : null;
+    // Le seuil d'exoneration se juge sur les montants reels, pas arrondis
+    const prixCession = await somme(retenues.map((c) => c.prix_brut).filter(Boolean));
 
     const { rows } = await db.requete(
         'SELECT $1::numeric <= $2::numeric AS exoneree', [prixCession, SEUIL_EXONERATION]
@@ -446,8 +492,9 @@ async function declaration(utilisateurId, annee) {
         total: {
             cessions: lignes.length,
             prix_cession: prixCession,
-            frais: await somme(lignes.map((l) => l.l214).filter(Boolean)),
+            frais: await somme(retenues.map((c) => c.frais).filter(Boolean)),
             plus_value: plusValue,
+            plus_value_exacte: plusValueExacte,
             case: caseDeclaration,
             montant_case: montantCase,
             exoneree: lignes.length > 0 && rows[0].exoneree,

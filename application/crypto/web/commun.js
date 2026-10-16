@@ -297,6 +297,8 @@
     // au centime par défaut, ou arrondi à l'euro comme sur les formulaires.
     // signe : le « + » d'un gain est écrit, le signe venant de la chaîne
     // décimale — une perte minuscule arrondie à zéro doit rester une perte.
+    // groupes : false retire le séparateur de milliers, qui bloque le
+    // copier-coller d'un montant dans un formulaire en ligne.
     function formaterEuros(valeur, options) {
         options = options || {};
         var nombre = Number(valeur);
@@ -307,6 +309,7 @@
             currency: 'EUR',
             minimumFractionDigits: decimales,
             maximumFractionDigits: decimales,
+            useGrouping: options.groupes !== false,
         }).format(nombre);
         if (options.signe && String(valeur).charAt(0) !== '-') texte = '+' + texte;
         return texte;
