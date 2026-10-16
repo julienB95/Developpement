@@ -119,12 +119,12 @@
         return (forme[1] && chiffres !== '0' ? '-' : '') + chiffres;
     }
 
-    // Une valeur à reporter sur impots.gouv.fr : un double-clic la sélectionne
-    // en entier — signe moins et barres de la date compris, qu'une sélection
-    // de mot laisserait de côté — et la copie dans le presse-papiers.
+    // Une valeur à reporter sur impots.gouv.fr : un clic la sélectionne en
+    // entier — signe moins et barres de la date compris, qu'une sélection de
+    // mot laisserait de côté — et la copie dans le presse-papiers.
     function valeurCopiable(texte) {
         var valeur = element('span', 'valeur-copiable', texte);
-        valeur.title = 'Double-cliquez pour copier';
+        valeur.title = 'Cliquez pour copier';
         return valeur;
     }
 
@@ -162,10 +162,10 @@
     }
 
     // Un seul écouteur pour toute la page : le tableau est reconstruit à
-    // chaque changement de page. Le double-clic sélectionne déjà la valeur
-    // entière ; elle part en plus dans le presse-papiers. Sans presse-papiers
+    // chaque changement de page. Le clic sélectionne déjà la valeur entière ;
+    // elle part en plus dans le presse-papiers. Sans presse-papiers
     // accessible, elle reste sélectionnée et se copie avec Ctrl+C.
-    function copierAuDoubleClic(evenement) {
+    function copierAuClic(evenement) {
         var valeur = evenement.target.closest ? evenement.target.closest('.valeur-copiable') : null;
         if (!valeur) return;
 
@@ -366,7 +366,7 @@
         rendrePage();
     }
 
-    synthese.addEventListener('dblclick', copierAuDoubleClic);
+    synthese.addEventListener('click', copierAuClic);
 
     precedent.addEventListener('click', function () {
         if (page === 0) return;

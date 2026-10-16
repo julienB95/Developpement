@@ -1685,9 +1685,9 @@ body.page-large main { max-width: 1720px; }
 
 .tableau-2086 .decl-incomplete { background: #fdf3f2; }
 
-/* Valeur à reporter sur impots.gouv.fr : un double-clic la sélectionne en
-   entier, signe et barres de la date compris, puis la copie. Le symbole €
-   reste hors de la sélection. */
+/* Valeur à reporter sur impots.gouv.fr : un clic la sélectionne en entier,
+   signe et barres de la date compris, puis la copie. Le symbole € reste hors
+   de la sélection. */
 .valeur-copiable {
     -webkit-user-select: all;
     user-select: all;
