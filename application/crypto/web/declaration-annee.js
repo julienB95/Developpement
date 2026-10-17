@@ -142,11 +142,13 @@
         return bloc;
     }
 
-    // Confirmation en bas de l'écran : un seul toast, relancé à chaque copie
+    // Confirmation à côté de la valeur copiée : un seul toast, déplacé et
+    // relancé à chaque copie
     var toast = null;
     var minuteurToast = null;
+    var ECART_TOAST = 8;
 
-    function afficherToast(texte, erreur) {
+    function afficherToast(texte, erreur, valeur) {
         if (!toast) {
             toast = element('div', 'toast');
             toast.setAttribute('role', 'status');
@@ -154,6 +156,17 @@
         }
         toast.textContent = texte;
         toast.classList.toggle('toast-erreur', Boolean(erreur));
+
+        // À droite de la valeur, à sa hauteur ; à gauche si le bord de la
+        // fenêtre est trop près. Le texte posé, la largeur du toast est connue.
+        var cadre = valeur.getBoundingClientRect();
+        var gauche = cadre.right + ECART_TOAST;
+        if (gauche + toast.offsetWidth > window.innerWidth - ECART_TOAST) {
+            gauche = cadre.left - ECART_TOAST - toast.offsetWidth;
+        }
+        toast.style.left = Math.max(ECART_TOAST, gauche) + 'px';
+        toast.style.top = (cadre.top + cadre.height / 2) + 'px';
+
         toast.classList.add('toast-visible');
         window.clearTimeout(minuteurToast);
         minuteurToast = window.setTimeout(function () {
@@ -170,18 +183,18 @@
         if (!valeur) return;
 
         if (!navigator.clipboard || !navigator.clipboard.writeText) {
-            afficherToast('Copie automatique indisponible : faites Ctrl+C', true);
+            afficherToast('Copie automatique indisponible : faites Ctrl+C', true, valeur);
             return;
         }
         navigator.clipboard.writeText(valeur.textContent)
             .then(function () {
                 valeur.classList.add('valeur-copiee');
                 window.setTimeout(function () { valeur.classList.remove('valeur-copiee'); }, 1200);
-                afficherToast('Copié');
+                afficherToast('Copié', false, valeur);
             })
             .catch(function (erreur) {
                 console.error('Copie dans le presse-papiers refusée :', erreur.message);
-                afficherToast('Copie refusée par le navigateur : faites Ctrl+C', true);
+                afficherToast('Copie refusée par le navigateur : faites Ctrl+C', true, valeur);
             });
     }
 
