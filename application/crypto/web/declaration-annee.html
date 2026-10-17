@@ -108,6 +108,54 @@
                 calcule de la même façon.
             </p>
 
+            <!-- Remplissage d'impots.gouv.fr par un favori : une page ne peut
+                 pas écrire dans une autre, le favori s'exécute sur la page des
+                 impôts avec les cessions copiées ici -->
+            <div class="decl-remplissage" id="remplissage-2086" hidden>
+                <div class="decl-remplissage-actions">
+                    <button type="button" class="bouton bouton-principal bouton-petit" id="copier-cessions">
+                        Copier les 5 cessions
+                    </button>
+                    <a class="bouton bouton-discret bouton-petit decl-favori" id="favori-2086" href="#"
+                       title="Glissez ce lien dans votre barre de favoris">Remplir le 2086</a>
+                </div>
+
+                <details class="decl-methode" open>
+                    <summary>Remplir impots.gouv.fr cinq cessions à la fois : la méthode</summary>
+                    <ol>
+                        <li>
+                            <strong>Une seule fois :</strong> affichez la barre de favoris du navigateur
+                            (Ctrl+Maj+B), puis glissez-y le lien « Remplir le 2086 ». Cliquer dessus
+                            ici ne fait rien : il ne fonctionne que sur le site des impôts.
+                        </li>
+                        <li>
+                            <strong>Ici :</strong> affichez la page de cessions voulue (1 à 5, 6 à 10…),
+                            puis cliquez sur « Copier les 5 cessions ».
+                        </li>
+                        <li>
+                            <strong>Sur impots.gouv.fr :</strong> ouvrez la page du formulaire 2086 qui
+                            porte les mêmes numéros de cession, puis cliquez sur le favori « Remplir le
+                            2086 ». La première fois, le navigateur demande l'autorisation de lire le
+                            presse-papiers : acceptez.
+                        </li>
+                        <li>
+                            <strong>Vérifiez</strong> les cases remplies, lignes 211 à 214, 220 et 221 :
+                            le formulaire calcule les autres. Le favori ne valide rien.
+                        </li>
+                        <li>
+                            Passez à la page suivante des deux côtés, et reprenez à l'étape 2.
+                        </li>
+                    </ol>
+                    <p class="aide">
+                        Le favori vérifie que les numéros de cession affichés sur la page des impôts
+                        sont ceux que vous avez copiés : sinon, il ne remplit rien. Si le navigateur
+                        refuse l'accès au presse-papiers, il propose de coller le texte copié dans une
+                        fenêtre. Si les impôts modifient leur formulaire, il indique les lignes qu'il ne
+                        trouve plus, sans rien remplir.
+                    </p>
+                </details>
+            </div>
+
             <div class="tableau-defilant">
                 <table class="tableau tableau-2086" id="tableau-2086">
                     <thead id="tete-2086"></thead>

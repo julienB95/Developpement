@@ -1720,6 +1720,21 @@ body.page-large main { max-width: 1720px; }
     pointer-events: none;
 }
 .toast-visible { opacity: 1; transform: translate(0, -50%); }
+
+/* Remplissage d'impots.gouv.fr par un favori, et sa méthode */
+.decl-remplissage {
+    margin: 16px 0;
+    padding: 14px 16px;
+    background: var(--fond);
+    border: 1px solid var(--bordure);
+    border-radius: var(--rayon);
+}
+.decl-remplissage-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.decl-favori { cursor: grab; }
+.decl-methode { margin-top: 12px; font-size: 14px; }
+.decl-methode summary { cursor: pointer; font-weight: 600; }
+.decl-methode ol { margin: 8px 0; padding-left: 22px; line-height: 1.6; }
+.decl-methode .aide { margin-top: 6px; }
 .toast-erreur { background: var(--alerte); }
 
 /* Légende des lignes du formulaire */

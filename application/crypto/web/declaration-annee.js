@@ -16,6 +16,9 @@
     var position = document.getElementById('position-2086');
     var precedent = document.getElementById('precedent-2086');
     var suivant = document.getElementById('suivant-2086');
+    var remplissage = document.getElementById('remplissage-2086');
+    var boutonCopier = document.getElementById('copier-cessions');
+    var favori = document.getElementById('favori-2086');
 
     // Cinq cessions par page, comme sur le formulaire en ligne
     var PAR_PAGE = 5;
@@ -353,6 +356,9 @@
             + ' · cessions ' + (debut + 1) + ' à ' + derniere;
         precedent.disabled = page === 0;
         suivant.disabled = page >= pages - 1;
+        boutonCopier.textContent = derniere > debut + 1
+            ? 'Copier les cessions ' + (debut + 1) + ' à ' + derniere
+            : 'Copier la cession ' + derniere;
     }
 
     function rendre2086(donnees) {
@@ -362,6 +368,7 @@
 
         cessions = donnees.cessions;
         page = 0;
+        remplissage.hidden = !cessions.length;
 
         if (!cessions.length) {
             var corps = document.getElementById('corps-2086');
@@ -378,6 +385,159 @@
 
         rendrePage();
     }
+
+    // --- Favori de remplissage d'impots.gouv.fr ---------------------------
+    // Une page ne peut pas écrire dans une autre : le remplissage passe par un
+    // favori, que le navigateur exécute sur la page des impôts. La fonction
+    // ci-dessous n'est jamais appelée ici : son texte devient le favori. Elle
+    // doit donc se suffire à elle-même, sans rien emprunter à ce fichier, et
+    // ne contenir ni commentaire de fin de ligne ni signe pourcent.
+    //
+    // Elle lit dans le presse-papiers les cessions copiées par le bouton
+    // « Copier les 5 cessions », retrouve chaque ligne à saisir du formulaire
+    // (211 à 214, 220, 221) par son numéro, puis remplit chaque colonne avec
+    // la cession dont le numéro figure en tête. Les événements d'une saisie
+    // sont rejoués, pour que le formulaire recalcule ses autres lignes ; rien
+    // n'est validé.
+    function remplir2086() {
+        var FORMAT = 'suivi-crypto-2086';
+        var LIGNES = ['211', '212', '213', '214', '220', '221'];
+        var liste = function (noeuds) { return Array.prototype.slice.call(noeuds); };
+
+        function demanderTexte() {
+            return window.prompt('Collez ici (Ctrl+V) les cessions copiées sur Suivi crypto :') || '';
+        }
+
+        function lirePressePapiers() {
+            if (!navigator.clipboard || !navigator.clipboard.readText) return Promise.resolve(demanderTexte());
+            return navigator.clipboard.readText().then(null, demanderTexte);
+        }
+
+        function champsDesLignes() {
+            var trouves = {};
+            liste(document.querySelectorAll('tr')).forEach(function (rangee) {
+                var champs = liste(rangee.querySelectorAll('input')).filter(function (champ) {
+                    return ['', 'text', 'tel', 'number'].indexOf(champ.type) !== -1;
+                });
+                var texte = (rangee.textContent || '').replace(/\s+/g, ' ').trim();
+                var numero = (texte.match(/^(\d{3})(?!\d)/) || [])[1];
+                if (!champs.length || LIGNES.indexOf(numero) === -1) return;
+                if (!trouves[numero] || champs.length < trouves[numero].length) trouves[numero] = champs;
+            });
+            return trouves;
+        }
+
+        function numerosEnTete() {
+            return liste(document.querySelectorAll('body *')).filter(function (noeud) {
+                return !noeud.children.length && /^Cession\s+\d+$/i.test((noeud.textContent || '').trim());
+            }).map(function (noeud) { return Number(noeud.textContent.replace(/\D/g, '')); });
+        }
+
+        function saisir(champ, valeur) {
+            var ecrire = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+            champ.focus();
+            ecrire.call(champ, valeur);
+            ['input', 'change', 'keyup', 'blur'].forEach(function (type) {
+                champ.dispatchEvent(new Event(type, { bubbles: true }));
+            });
+        }
+
+        function numeros(serie) {
+            return serie.map(function (cession) { return cession.numero; }).join(', ');
+        }
+
+        lirePressePapiers().then(function (texte) {
+            var donnees = null;
+            try {
+                donnees = JSON.parse(texte);
+            } catch (erreur) {
+                donnees = null;
+            }
+            if (!donnees || donnees.format !== FORMAT || !donnees.cessions || !donnees.cessions.length) {
+                window.alert('Rien à coller : sur Suivi crypto, cliquez d\'abord sur « Copier les 5 cessions ».');
+                return;
+            }
+
+            var champs = champsDesLignes();
+            var absentes = LIGNES.filter(function (numero) { return !champs[numero]; });
+            if (absentes.length) {
+                window.alert('Formulaire 2086 non reconnu sur cette page : ligne(s) ' + absentes.join(', ')
+                    + ' introuvable(s). Rien n\'a été rempli.');
+                return;
+            }
+
+            var parNumero = {};
+            donnees.cessions.forEach(function (cession) { parNumero[cession.numero] = cession; });
+            var enTete = numerosEnTete();
+            var lues = enTete.length === champs['211'].length;
+            var colonnes = lues
+                ? enTete.map(function (numero) { return parNumero[numero] || null; })
+                : donnees.cessions.slice(0, champs['211'].length);
+            var remplies = colonnes.filter(Boolean);
+            if (!remplies.length) {
+                window.alert('Cette page porte les cessions ' + enTete.join(', ') + ', mais les cessions copiées sont les '
+                    + numeros(donnees.cessions) + '. Copiez la bonne page sur Suivi crypto. Rien n\'a été rempli.');
+                return;
+            }
+
+            LIGNES.forEach(function (numero) {
+                champs[numero].forEach(function (champ, rang) {
+                    var cession = colonnes[rang];
+                    if (cession) saisir(champ, String(cession['l' + numero]));
+                });
+            });
+            window.alert('Cessions ' + numeros(remplies) + ' collées.'
+                + (lues ? '' : ' Numéros de cession non lus sur la page : collées dans l\'ordre.')
+                + ' Vérifiez chaque case avant de valider.');
+        }, function (erreur) {
+            window.alert('Lecture du presse-papiers impossible : ' + erreur.message);
+        });
+    }
+
+    // Ce que le favori colle : les lignes à saisir des cessions affichées,
+    // telles que le tableau les montre. Une ligne 221 nulle reste vide, comme
+    // on la laisse sur le formulaire.
+    function cessionsAffichees() {
+        var debut = page * PAR_PAGE;
+        return cessions.slice(debut, debut + PAR_PAGE).map(function (cession) {
+            var fractions = euroEntier(cession.l221);
+            return {
+                numero: cession.numero,
+                l211: jourFrancais(cession.l211),
+                l212: euroEntier(cession.l212) || '',
+                l213: euroEntier(cession.l213) || '',
+                l214: euroEntier(cession.l214) || '',
+                l220: euroEntier(cession.l220) || '',
+                l221: fractions && fractions !== '0' ? fractions : '',
+            };
+        });
+    }
+
+    boutonCopier.addEventListener('click', function () {
+        var affichees = cessionsAffichees();
+        var texte = JSON.stringify({ format: 'suivi-crypto-2086', cessions: affichees });
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+            afficherToast('Copie automatique indisponible dans ce navigateur', true, boutonCopier);
+            return;
+        }
+        navigator.clipboard.writeText(texte)
+            .then(function () {
+                afficherToast(affichees.length > 1 ? affichees.length + ' cessions copiées' : 'Cession copiée',
+                    false, boutonCopier);
+            })
+            .catch(function (erreur) {
+                console.error('Copie des cessions refusée :', erreur.message);
+                afficherToast('Copie refusée par le navigateur', true, boutonCopier);
+            });
+    });
+
+    // Le texte du favori, encodé : décodé à l'exécution, il redonne la fonction
+    favori.setAttribute('href', 'javascript:' + encodeURIComponent('(' + remplir2086.toString() + ')();'));
+    // Exécuté ici, il ne trouverait aucun formulaire : il sert seulement à être glissé
+    favori.addEventListener('click', function (evenement) {
+        evenement.preventDefault();
+        afficherToast('Glissez ce lien dans la barre de favoris : il sert sur impots.gouv.fr', true, favori);
+    });
 
     synthese.addEventListener('click', copierAuClic);
 
