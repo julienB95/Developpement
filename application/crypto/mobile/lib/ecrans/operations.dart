@@ -185,7 +185,10 @@ class _EcranOperationsState extends State<EcranOperations> {
   Widget _ligne(Operation operation) {
     return ListTile(
       leading: LogoCrypto(operation.idCrypto),
-      title: Text('${libelleType(operation.type)} · ${formaterQuantite(operation.quantite, operation.idCrypto)}'),
+      title: Text(
+        '${libelleType(operation.type)} · ${formaterQuantite(operation.quantite, operation.idCrypto)}'
+        '${operation.prixUnitaire == null ? '' : ' à ${formaterMontant(operation.prixUnitaire, 'EUR')}'}',
+      ),
       subtitle: Text(
         '${formaterDateHeure(operation.horodatage)}'
         '${operation.plateforme == null ? '' : ' · ${operation.plateforme}'}',

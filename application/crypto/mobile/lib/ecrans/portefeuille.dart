@@ -4,6 +4,7 @@ import '../api/modeles.dart';
 import '../api/session.dart';
 import '../composants/chargement.dart';
 import '../composants/elements.dart';
+import '../outils/decimal.dart';
 import '../outils/format.dart';
 import 'ma_crypto.dart';
 
@@ -46,9 +47,24 @@ class _EcranPortefeuilleState extends State<EcranPortefeuille> {
               ListTile(
                 leading: LogoCrypto(ligne.idCrypto),
                 title: Text(ligne.libelle),
-                subtitle: Text(
-                  '${formaterQuantite(ligne.quantite, ligne.idCrypto)}\n'
-                  '${ligne.prix == null ? 'Cours indisponible' : '${formaterCours(ligne.prix, portefeuille.devise)} / ${ligne.idCrypto}'}',
+                subtitle: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: formaterQuantite(ligne.quantite, ligne.idCrypto),
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const TextSpan(text: '\n'),
+                      TextSpan(
+                        text: ligne.prix == null
+                            ? 'Cours indisponible'
+                            : '${formaterCours(ligne.prix, portefeuille.devise)} / ${ligne.idCrypto}',
+                        style: TextStyle(color: _couleurCours(ligne)),
+                      ),
+                      if (ligne.prixMoyen != null)
+                        TextSpan(text: '\nAch. Moy. ${formaterCours(ligne.prixMoyen, 'EUR')} / ${ligne.idCrypto}'),
+                    ],
+                  ),
                 ),
                 isThreeLine: true,
                 trailing: Text(
@@ -68,6 +84,17 @@ class _EcranPortefeuilleState extends State<EcranPortefeuille> {
       ),
     );
   }
+}
+
+/// Cours en vert au-dessus du prix d'achat moyen, en rouge en dessous ;
+/// couleur par défaut s'il manque l'un des deux ou s'ils sont égaux.
+Color? _couleurCours(LignePortefeuille ligne) {
+  final cours = Decimal.lire(ligne.prix);
+  final moyen = Decimal.lire(ligne.prixMoyen);
+  if (cours == null || moyen == null) return null;
+  final ecart = cours - moyen;
+  if (ecart.compareTo(Decimal.lire('0')!) == 0) return null;
+  return couleurSigne(ecart.toString());
 }
 
 class _CarteTotal extends StatelessWidget {

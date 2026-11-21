@@ -926,6 +926,16 @@ route('GET', '/api/crypto/mon-portefeuille', async ({ req }) => {
         [utilisateur.id, cotees.map((actif) => actif.symbole), cotees.map((actif) => actif.prix)]
     );
 
+    // Prix d'achat moyen de chaque ligne, au coût moyen pondéré : même calcul
+    // que la page détaillée, pour que les deux écrans affichent le même prix
+    const stakingValorise = utilisateur.staking_acquisition === 'valeur_recue';
+    await Promise.all(rows.map(async (ligne) => {
+        const { rows: [suivi] } = await db.requete(SUIVI_POSITION, [
+            utilisateur.id, ligne.id_crypto, stakingValorise, null,
+        ]);
+        ligne.prix_moyen = suivi ? suivi.prix_moyen : null;
+    }));
+
     // Total du portefeuille, additionné par PostgreSQL : seules les lignes
     // cotées y entrent, les autres sont comptées pour que l'écran le dise.
     const valorisees = rows.filter((ligne) => ligne.total !== null).map((ligne) => ligne.total);

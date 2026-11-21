@@ -204,13 +204,15 @@ class LignePortefeuille {
   final String quantite;
   final String? prix;
   final String? total;
+  final String? prixMoyen;
 
   LignePortefeuille.json(Map<String, dynamic> j)
       : idCrypto = j['id_crypto'] as String,
         libelle = j['libelle'] as String? ?? j['id_crypto'] as String,
         quantite = _texte(j['quantite'])!,
         prix = _texte(j['prix']),
-        total = _texte(j['total']);
+        total = _texte(j['total']),
+        prixMoyen = _texte(j['prix_moyen']);
 }
 
 class Portefeuille {

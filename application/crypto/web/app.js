@@ -35,6 +35,26 @@
         listeDetentions.appendChild(item);
     }
 
+    // Compare deux chaînes décimales (« 45000.12 ») sans passer par un flottant :
+    // renvoie -1, 0 ou 1, ou null si l'une des deux n'est pas un nombre
+    function comparerDecimaux(a, b) {
+        function lire(texte) {
+            var morceaux = /^(-?)(\d*)(?:\.(\d*))?$/.exec(String(texte).trim());
+            if (!morceaux || (!morceaux[2] && !morceaux[3])) return null;
+            return { signe: morceaux[1], entier: morceaux[2] || '0', fraction: morceaux[3] || '' };
+        }
+        var x = lire(a);
+        var y = lire(b);
+        if (!x || !y) return null;
+        var echelle = Math.max(x.fraction.length, y.fraction.length);
+        function versEntier(n) {
+            var chiffres = n.entier + n.fraction + '0'.repeat(echelle - n.fraction.length);
+            return BigInt(n.signe + chiffres);
+        }
+        var ecart = versEntier(x) - versEntier(y);
+        return ecart > 0n ? 1 : (ecart < 0n ? -1 : 0);
+    }
+
     function rendreDetentions(donnees) {
         if (!donnees.lignes.length) {
             return messageDetentions('Aucune crypto détenue pour le moment.');
@@ -66,7 +86,7 @@
             texte.appendChild(libelle);
             texte.appendChild(symbole);
 
-            // Quantité, cours unitaire, puis valeur de la ligne en euro
+            // Quantité, cours unitaire, prix d'achat moyen, puis valeur de la ligne en euro
             var chiffres = document.createElement('span');
             chiffres.className = 'detention-chiffres';
 
@@ -79,6 +99,19 @@
             prix.textContent = ligne.prix === null
                 ? 'Cours indisponible'
                 : C.formaterMontant(ligne.prix, 'EUR') + ' / ' + ligne.id_crypto;
+            // Cours en vert au-dessus du prix d'achat moyen, en rouge en dessous
+            var position = ligne.prix === null || ligne.prix_moyen === null || ligne.prix_moyen === undefined
+                ? null
+                : comparerDecimaux(ligne.prix, ligne.prix_moyen);
+            if (position === 1) prix.className += ' pv-gain';
+            if (position === -1) prix.className += ' pv-perte';
+
+            // Prix d'achat moyen, au coût moyen pondéré frais compris
+            var prixMoyen = document.createElement('span');
+            prixMoyen.className = 'detention-prix';
+            prixMoyen.textContent = 'Ach. Moy. ' +(ligne.prix_moyen === null || ligne.prix_moyen === undefined
+                ? '—'
+                : C.formaterMontant(ligne.prix_moyen, 'EUR') + ' / ' + ligne.id_crypto);
 
             var total = document.createElement('span');
             total.className = 'detention-total';
@@ -86,6 +119,7 @@
 
             chiffres.appendChild(quantite);
             chiffres.appendChild(prix);
+            chiffres.appendChild(prixMoyen);
             chiffres.appendChild(total);
 
             lien.appendChild(C.logoCrypto(ligne.id_crypto));
@@ -467,7 +501,7 @@
         return String(montant).charAt(0) === '-' ? formate : '+' + formate;
     }
 
-    var COLONNES_OPERATIONS = ['Crypto', 'Date', 'Type', 'Quantité', 'Montant'];
+    var COLONNES_OPERATIONS = ['Crypto', 'Date', 'Type', 'Quantité', 'Prix d\'achat / vente', 'Montant'];
 
     function construireTableau() {
         C.vider(operationsContenu);
@@ -518,6 +552,12 @@
         rangee.appendChild(type);
 
         rangee.appendChild(cellule(C.formaterQuantite(ligne.quantite), 'cellule-nombre'));
+        rangee.appendChild(cellule(
+            ligne.prix_unitaire === null || ligne.prix_unitaire === undefined
+                ? '—'
+                : C.formaterMontant(ligne.prix_unitaire, 'EUR'),
+            'cellule-nombre'
+        ));
         rangee.appendChild(cellule(texteMontant(ligne.montant, 'EUR'), classeMontant(ligne.montant)));
 
         // Sur téléphone, chaque ligne devient une carte : la cellule porte

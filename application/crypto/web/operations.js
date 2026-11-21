@@ -131,7 +131,7 @@
             { titre: 'Date' },
             { titre: 'Type' },
             { titre: 'Quantité', nombre: true },
-            { titre: 'Prix unitaire', nombre: true },
+            { titre: 'Prix d\'achat / vente', nombre: true },
             { titre: 'Frais', nombre: true },
             { titre: 'Montant', nombre: true },
             { titre: 'Plateforme' },

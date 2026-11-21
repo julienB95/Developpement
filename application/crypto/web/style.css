@@ -857,6 +857,7 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
 
 .detention-quantite {
     font-size: 13px;
+    font-weight: 700;
     color: var(--encre-douce);
     overflow-wrap: anywhere;
 }
@@ -1281,6 +1282,7 @@ main h1:not(.hors-ecran) { margin: 0 0 20px; font-size: clamp(26px, 3.5vw, 32px)
    en profite aussi, pour montrer le formulaire 2086 sans défilement. */
 
 body.page-large main { max-width: 1720px; }
+body.page-moyenne main { max-width: 1280px; }
 
 /* --- Logo dans les cartes de cours ---------------------------------------- */
 
