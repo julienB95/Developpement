@@ -14,6 +14,13 @@
 //   SAUVEGARDE_TAILLE_COURRIEL_MO taille maximale de la pièce jointe (défaut 15)
 //   SAUVEGARDE_MOT_DE_PASSE       chiffre en AES-256 l'archive jointe au courriel ;
 //                                 absent, le courriel part sans pièce jointe
+//   SAUVEGARDE_HEURE              heure de la sauvegarde quotidienne (HH:MM, heure
+//                                 locale du serveur) ; absente, aucune sauvegarde
+//                                 automatique
+//   SAUVEGARDE_CONSERVER          sauvegardes automatiques gardées (défaut 30) ;
+//                                 celles lancées à la main ne sont jamais purgées
+//   SAUVEGARDE_PLANIFIEE_COURRIEL oui : chaque sauvegarde automatique part par
+//                                 courriel ; sinon, seul un échec est signalé
 const fs = require('fs');
 const path = require('path');
 const db = require('../../_commun/api/db');
@@ -434,7 +441,8 @@ async function dossierLibre(date) {
     throw new Error('Trop de sauvegardes portant le même horodatage');
 }
 
-async function creer(demandeur) {
+// options.courriel à false : la sauvegarde reste sur le disque, sans envoi
+async function creer(demandeur, { courriel: avecCourriel = true } = {}) {
     if (enCours) {
         const err = new Error('Une sauvegarde est déjà en cours');
         err.code = 409;
@@ -495,7 +503,7 @@ async function creer(demandeur) {
         await fs.promises.writeFile(path.join(chemin, NOM_ARCHIVE), archive);
         manifeste.archive.octets = archive.length;
 
-        manifeste.courriel = await prevenir(manifeste, chemin, entrees, debut);
+        manifeste.courriel = avecCourriel ? await prevenir(manifeste, chemin, entrees, debut) : null;
         manifeste.statut = 'terminee';
         manifeste.duree_ms = Date.now() - debut.getTime();
         await ecrireManifeste(chemin, manifeste);
@@ -589,4 +597,131 @@ async function supprimer(nom) {
     return { dossier: nom };
 }
 
-module.exports = { creer, lister, supprimer, racine };
+// --- Planification ---------------------------------------------------------
+// Une sauvegarde quotidienne dépose la base dans le dossier des sauvegardes,
+// que la sauvegarde du NAS emporte ensuite : la base elle-même vit dans un
+// volume Docker que celle-ci ne voit pas.
+const DEMANDEUR_PLANIFICATION = 'planification';
+const CONSERVATION_DEFAUT = 30;
+
+function heurePlanifiee() {
+    const valeur = (process.env.SAUVEGARDE_HEURE || '').trim();
+    if (!valeur) return null;
+
+    const morceaux = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(valeur);
+    if (!morceaux) throw new Error(`SAUVEGARDE_HEURE invalide : « ${valeur} », attendu HH:MM`);
+    return { heures: Number(morceaux[1]), minutes: Number(morceaux[2]) };
+}
+
+function texteHeure(heure) {
+    return `${String(heure.heures).padStart(2, '0')}:${String(heure.minutes).padStart(2, '0')}`;
+}
+
+// Calculée en heure locale : le changement d'heure ne décale pas la sauvegarde
+function prochaineEcheance(heure, apres) {
+    const echeance = new Date(apres);
+    echeance.setHours(heure.heures, heure.minutes, 0, 0);
+    if (echeance <= apres) echeance.setDate(echeance.getDate() + 1);
+    return echeance;
+}
+
+function nombreConserve() {
+    const valeur = Math.floor(Number(process.env.SAUVEGARDE_CONSERVER));
+    return valeur >= 1 ? valeur : CONSERVATION_DEFAUT;
+}
+
+// Seules les sauvegardes automatiques terminées tournent : une sauvegarde
+// lancée à la main, ou interrompue, reste jusqu'à ce qu'on la supprime.
+async function purgerAutomatiques() {
+    const { sauvegardes } = await lister();
+    const automatiques = sauvegardes.filter((sauvegarde) =>
+        sauvegarde.statut === 'terminee' && sauvegarde.demandee_par === DEMANDEUR_PLANIFICATION);
+
+    const supprimees = [];
+    for (const sauvegarde of automatiques.slice(nombreConserve())) {
+        await supprimer(sauvegarde.dossier);
+        supprimees.push(sauvegarde.dossier);
+    }
+    return supprimees;
+}
+
+// Personne ne regarde le serveur à l'heure de la sauvegarde : un échec part
+// par courriel, sans quoi il passerait inaperçu jusqu'au jour où l'on en a besoin.
+async function signalerEchec(sujet, err) {
+    if (!courriel.estConfigure()) {
+        console.error('Échec non signalé par courriel : envoi non configuré (variables SMTP_ du .env)');
+        return;
+    }
+
+    try {
+        await courriel.envoyer({
+            destinataire: destinataire(),
+            sujet,
+            texte: [
+                sujet,
+                '',
+                `Date : ${new Date().toISOString()}`,
+                `Cause : ${err.message}`,
+                '',
+                `Dossier des sauvegardes : ${racine()}`,
+            ].join('\n'),
+        });
+    } catch (envoi) {
+        console.error("Signalement de l'échec par courriel :", envoi.message);
+    }
+}
+
+async function sauvegardePlanifiee() {
+    const avecCourriel = (process.env.SAUVEGARDE_PLANIFIEE_COURRIEL || '').trim().toLowerCase() === 'oui';
+
+    try {
+        const manifeste = await creer(DEMANDEUR_PLANIFICATION, { courriel: avecCourriel });
+        console.log('Sauvegarde automatique terminée :', manifeste.dossier);
+    } catch (err) {
+        console.error('Échec de la sauvegarde automatique :', err.message);
+        await signalerEchec('Échec de la sauvegarde automatique du site crypto', err);
+        return;
+    }
+
+    try {
+        const supprimees = await purgerAutomatiques();
+        if (supprimees.length) {
+            console.log('Anciennes sauvegardes automatiques supprimées :', supprimees.join(', '));
+        }
+    } catch (err) {
+        console.error('Échec de la purge des sauvegardes automatiques :', err.message);
+        await signalerEchec('Échec de la purge des anciennes sauvegardes du site crypto', err);
+    }
+}
+
+// Renvoie l'heure retenue, ou null si aucune sauvegarde automatique n'est
+// demandée. La minuterie ne retient pas le processus à l'arrêt.
+function planifier() {
+    let heure;
+    try {
+        heure = heurePlanifiee();
+    } catch (err) {
+        console.error('Sauvegarde automatique désactivée :', err.message);
+        return null;
+    }
+    if (!heure) return null;
+
+    function programmer(precedente) {
+        // Une minuterie peut se déclencher quelques millisecondes en avance :
+        // partir d'au moins une minute après l'échéance passée évite un doublon.
+        const depart = new Date(Math.max(Date.now(), precedente ? precedente.getTime() + 60000 : 0));
+        const echeance = prochaineEcheance(heure, depart);
+
+        const minuterie = setTimeout(() => {
+            sauvegardePlanifiee().finally(() => programmer(echeance));
+        }, echeance.getTime() - Date.now());
+        minuterie.unref();
+    }
+
+    programmer(null);
+    console.log(`Sauvegarde automatique chaque jour à ${texteHeure(heure)}, `
+        + `${nombreConserve()} sauvegarde(s) automatique(s) conservée(s)`);
+    return heure;
+}
+
+module.exports = { creer, lister, supprimer, racine, planifier };

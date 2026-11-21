@@ -1219,7 +1219,9 @@
 
         var dossier = document.createElement('span');
         dossier.className = 'cellule-courriel';
-        dossier.textContent = ligne.dossier;
+        dossier.textContent = ligne.demandee_par === 'planification'
+            ? ligne.dossier + ' · automatique'
+            : ligne.dossier;
         conteneur.appendChild(dossier);
 
         return conteneur;

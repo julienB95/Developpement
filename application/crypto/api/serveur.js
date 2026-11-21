@@ -2063,6 +2063,9 @@ purger();
 const minuterie = setInterval(purger, INTERVALLE_PURGE);
 minuterie.unref();
 
+// Sauvegarde quotidienne, si SAUVEGARDE_HEURE est renseignée
+sauvegarde.planifier();
+
 function arreter() {
     serveur.close(() => db.fermer());
 }
