@@ -17,8 +17,12 @@
 //   SAUVEGARDE_HEURE              heure de la sauvegarde quotidienne (HH:MM, heure
 //                                 locale du serveur) ; absente, aucune sauvegarde
 //                                 automatique
-//   SAUVEGARDE_CONSERVER          sauvegardes automatiques gardées (défaut 30) ;
-//                                 celles lancées à la main ne sont jamais purgées
+//   SAUVEGARDE_GARDER_JOURS       rotation des sauvegardes automatiques : la plus
+//   SAUVEGARDE_GARDER_SEMAINES    récente de chaque jour, semaine, mois et année
+//   SAUVEGARDE_GARDER_MOIS        est gardée sur ces durées (défauts 7, 4, 12, 0) ;
+//   SAUVEGARDE_GARDER_ANNEES      0 désactive le palier, sauf pour les années où
+//                                 0 signifie sans limite. Celles lancées à la
+//                                 main ne sont jamais purgées
 //   SAUVEGARDE_PLANIFIEE_COURRIEL oui : chaque sauvegarde automatique part par
 //                                 courriel ; sinon, seul un échec est signalé
 const fs = require('fs');
@@ -602,7 +606,6 @@ async function supprimer(nom) {
 // que la sauvegarde du NAS emporte ensuite : la base elle-même vit dans un
 // volume Docker que celle-ci ne voit pas.
 const DEMANDEUR_PLANIFICATION = 'planification';
-const CONSERVATION_DEFAUT = 30;
 
 function heurePlanifiee() {
     const valeur = (process.env.SAUVEGARDE_HEURE || '').trim();
@@ -625,9 +628,91 @@ function prochaineEcheance(heure, apres) {
     return echeance;
 }
 
-function nombreConserve() {
-    const valeur = Math.floor(Number(process.env.SAUVEGARDE_CONSERVER));
-    return valeur >= 1 ? valeur : CONSERVATION_DEFAUT;
+// --- Rotation --------------------------------------------------------------
+// Paliers successifs : la plus récente sauvegarde de chaque jour des 7 derniers
+// jours, de chaque semaine des 4 dernières, de chaque mois des 12 derniers et
+// de chaque année. Une sauvegarde retenue par un palier au moins est gardée.
+const PALIERS = [
+    { cle: 'jours', variable: 'SAUVEGARDE_GARDER_JOURS', defaut: 7 },
+    { cle: 'semaines', variable: 'SAUVEGARDE_GARDER_SEMAINES', defaut: 4 },
+    { cle: 'mois', variable: 'SAUVEGARDE_GARDER_MOIS', defaut: 12 },
+    { cle: 'annees', variable: 'SAUVEGARDE_GARDER_ANNEES', defaut: 0 },
+];
+
+// Pour les années, 0 veut dire sans limite ; ailleurs, 0 désactive le palier
+function reglesRotation() {
+    const regles = {};
+    for (const palier of PALIERS) {
+        const brut = (process.env[palier.variable] || '').trim();
+        const valeur = Number(brut);
+        regles[palier.cle] = brut !== '' && Number.isInteger(valeur) && valeur >= 0 ? valeur : palier.defaut;
+    }
+    return regles;
+}
+
+function texteRotation(regles) {
+    const annees = regles.annees === 0 ? 'toutes les années' : `${regles.annees} an(s)`;
+    return `${regles.jours} jour(s), ${regles.semaines} semaine(s), ${regles.mois} mois, ${annees}`;
+}
+
+const deuxChiffres = (valeur) => String(valeur).padStart(2, '0');
+
+// Semaine ISO : elle commence le lundi et appartient à l'année de son jeudi
+function cleSemaine(date) {
+    const jeudi = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    jeudi.setDate(jeudi.getDate() + 3 - ((jeudi.getDay() + 6) % 7));
+    const premierJanvier = new Date(jeudi.getFullYear(), 0, 1);
+    const numero = 1 + Math.floor((jeudi - premierJanvier) / (7 * 24 * 60 * 60 * 1000));
+    return `${jeudi.getFullYear()}-S${deuxChiffres(numero)}`;
+}
+
+// Clés de période en heure locale du serveur : un jour est un jour du calendrier
+const CLES = {
+    jours: (date) => `${date.getFullYear()}-${deuxChiffres(date.getMonth() + 1)}-${deuxChiffres(date.getDate())}`,
+    semaines: cleSemaine,
+    mois: (date) => `${date.getFullYear()}-${deuxChiffres(date.getMonth() + 1)}`,
+    annees: (date) => String(date.getFullYear()),
+};
+
+// Les périodes couvertes par un palier, comptées depuis la période en cours
+function periodesCouvertes(palier, nombre, maintenant) {
+    const periodes = new Set();
+    for (let rang = 0; rang < nombre; rang += 1) {
+        const annee = maintenant.getFullYear();
+        const mois = maintenant.getMonth();
+        const jour = maintenant.getDate();
+        const date = {
+            jours: () => new Date(annee, mois, jour - rang),
+            semaines: () => new Date(annee, mois, jour - 7 * rang),
+            mois: () => new Date(annee, mois - rang, 1),
+            annees: () => new Date(annee - rang, 0, 1),
+        }[palier]();
+        periodes.add(CLES[palier](date));
+    }
+    return periodes;
+}
+
+// Fonction pure : à partir de la liste des sauvegardes automatiques, renvoie
+// l'ensemble des dossiers à garder. La plus récente est toujours gardée.
+function dossiersAGarder(sauvegardes, regles, maintenant = new Date()) {
+    const recentes = [...sauvegardes].sort((a, b) => new Date(b.horodatage) - new Date(a.horodatage));
+    const garder = new Set(recentes.length ? [recentes[0].dossier] : []);
+
+    for (const palier of PALIERS.map((p) => p.cle)) {
+        const sansLimite = palier === 'annees' && regles.annees === 0;
+        if (!sansLimite && regles[palier] === 0) continue;
+
+        const periodes = sansLimite ? null : periodesCouvertes(palier, regles[palier], maintenant);
+        const prises = new Set();
+
+        for (const sauvegarde of recentes) {
+            const cle = CLES[palier](new Date(sauvegarde.horodatage));
+            if (prises.has(cle) || (periodes && !periodes.has(cle))) continue;
+            prises.add(cle);
+            garder.add(sauvegarde.dossier);
+        }
+    }
+    return garder;
 }
 
 // Seules les sauvegardes automatiques terminées tournent : une sauvegarde
@@ -637,8 +722,10 @@ async function purgerAutomatiques() {
     const automatiques = sauvegardes.filter((sauvegarde) =>
         sauvegarde.statut === 'terminee' && sauvegarde.demandee_par === DEMANDEUR_PLANIFICATION);
 
+    const garder = dossiersAGarder(automatiques, reglesRotation());
     const supprimees = [];
-    for (const sauvegarde of automatiques.slice(nombreConserve())) {
+    for (const sauvegarde of automatiques) {
+        if (garder.has(sauvegarde.dossier)) continue;
         await supprimer(sauvegarde.dossier);
         supprimees.push(sauvegarde.dossier);
     }
@@ -720,8 +807,8 @@ function planifier() {
 
     programmer(null);
     console.log(`Sauvegarde automatique chaque jour à ${texteHeure(heure)}, `
-        + `${nombreConserve()} sauvegarde(s) automatique(s) conservée(s)`);
+        + `rotation : ${texteRotation(reglesRotation())}`);
     return heure;
 }
 
-module.exports = { creer, lister, supprimer, racine, planifier };
+module.exports = { creer, lister, supprimer, racine, planifier, dossiersAGarder };
