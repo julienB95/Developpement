@@ -196,8 +196,25 @@ function exigerDevise(valeur, defaut = 'EUR') {
 // actives=1 : uniquement les cryptos encore suivies. Une crypto desactivee
 // disparait des choix proposes, mais reste visible dans l'administration.
 // Les compteurs servent a prevenir de ce qu'une suppression emporterait.
-route('GET', '/api/crypto/cryptos', async ({ url }) => {
+// tri=position : les plus grosses positions de l'utilisateur connecté passent
+// en tête, valorisées au cours en euro du moment (vue position), comme dans
+// « Mes cryptos ». Une crypto détenue sans cours suit les positions valorisées ;
+// celles qu'il ne détient pas viennent ensuite. Ce tri exige une session.
+route('GET', '/api/crypto/cryptos', async ({ req, url }) => {
     const seulementActives = url.searchParams.get('actives') === '1';
+    const triPosition = url.searchParams.get('tri') === 'position';
+    const utilisateur = triPosition ? await exigerConnexion(req) : null;
+
+    // Sans cours, le tri se contente de mettre les cryptos détenues en tête
+    let cotees = [];
+    if (triPosition) {
+        try {
+            const marcheEur = await marche.cours('eur');
+            cotees = marcheEur.actifs.filter((actif) => actif.prix !== null);
+        } catch (err) {
+            console.error('Cours indisponibles pour le tri des cryptos :', err.message);
+        }
+    }
 
     const { rows } = await db.requete(
         `SELECT c.id, c.libelle, c.identifiant_coingecko, c.paire_binance,
@@ -205,8 +222,15 @@ route('GET', '/api/crypto/cryptos', async ({ url }) => {
                 (SELECT count(*)::int FROM operation o WHERE o.id_crypto = c.id) AS operations,
                 (SELECT count(*)::int FROM crypto_valeur v WHERE v.id_crypto = c.id) AS valeurs
          FROM crypto c
+         ${triPosition ? `LEFT JOIN position p
+                              ON p.id_crypto = c.id AND p.utilisateur_id = $1 AND p.quantite > 0
+                          LEFT JOIN unnest($2::text[], $3::numeric[]) AS k(id_crypto, prix)
+                              ON k.id_crypto = c.id` : ''}
          ${seulementActives ? 'WHERE c.est_suivi' : ''}
-         ORDER BY c.est_suivi DESC, c.id`
+         ORDER BY ${triPosition ? 'p.quantite * k.prix DESC NULLS LAST, p.quantite IS NULL, ' : ''}c.est_suivi DESC, c.id`,
+        triPosition
+            ? [utilisateur.id, cotees.map((actif) => actif.symbole), cotees.map((actif) => actif.prix)]
+            : []
     );
     return { code: 200, corps: rows };
 });

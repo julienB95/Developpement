@@ -245,7 +245,8 @@
         if (referentiel) return Promise.resolve(referentiel);
 
         return Promise.all([
-            C.appeler('/cryptos').catch(function () { return []; }),
+            // Cryptos triées par position : les plus grosses détentions en tête
+            C.appeler('/cryptos?tri=position').catch(function () { return []; }),
             C.appeler('/plateformes').catch(function () { return []; }),
             C.appeler('/moi').catch(function () { return null; }),
         ]).then(function (resultats) {

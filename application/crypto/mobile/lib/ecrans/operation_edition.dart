@@ -24,7 +24,11 @@ class EcranOperationEdition extends StatelessWidget {
   const EcranOperationEdition({super.key, required this.session, this.operation});
 
   Future<_Referentiels> _charger() async {
-    final reponses = await Future.wait([session.api.lire('/cryptos'), session.api.lire('/plateformes')]);
+    // Cryptos triées par position : les plus grosses détentions en tête
+    final reponses = await Future.wait([
+      session.api.lire('/cryptos', {'tri': 'position'}),
+      session.api.lire('/plateformes'),
+    ]);
     return _Referentiels(
       (reponses[0] as List).cast<Map<String, dynamic>>().map(CryptoRef.json).toList(),
       (reponses[1] as List).cast<Map<String, dynamic>>().map(Plateforme.json).toList(),
