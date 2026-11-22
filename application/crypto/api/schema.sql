@@ -480,3 +480,28 @@ INSERT INTO plateforme (libelle) VALUES
     ('Trade Republic'),
     ('Autre')
 ON CONFLICT (libelle) DO NOTHING;
+
+-- --------------------------------------------------------------------------
+-- Droits du rôle de l'API
+-- --------------------------------------------------------------------------
+
+-- L'API se connecte avec crypto_app : lecture et écriture des données, rien de
+-- plus. Elle ne peut ni modifier la structure, ni créer de rôle, ni exécuter de
+-- commande sur le serveur, contrairement au compte propriétaire qui applique ce
+-- fichier. Le rôle et son mot de passe sont créés une fois pour toutes, hors de
+-- ce fichier : aucun secret dans le dépôt. Tant qu'il n'existe pas, ce bloc ne
+-- fait rien.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crypto_app') THEN
+        EXECUTE format('GRANT CONNECT ON DATABASE %I TO crypto_app', current_database());
+        GRANT USAGE ON SCHEMA public TO crypto_app;
+        GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO crypto_app;
+        GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO crypto_app;
+        -- Les tables et compteurs créés plus tard par ce fichier en héritent
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO crypto_app;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO crypto_app;
+    END IF;
+END $$;

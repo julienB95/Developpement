@@ -41,6 +41,9 @@ pour tout ce qui se trouve dans `application/crypto/`.
 - Les montants et quantités sont en `NUMERIC(38, 18)`, jamais en `REAL` ni `DOUBLE PRECISION`
 - Les horodatages sont en `TIMESTAMPTZ`
 - Les positions sont calculées depuis la vue `position` : aucun solde dénormalisé en table
+- En production, l'API se connecte avec le rôle `crypto_app` (lecture et écriture des données,
+  aucun droit sur la structure) ; `migrer.js` prend le compte propriétaire via `PGUSER_MIGRATION`.
+  Aucun code de l'API n'exécute de `CREATE`, `ALTER`, `DROP` ou `GRANT` : tout passe par `schema.sql`
 
 ## Comptes utilisateurs
 
