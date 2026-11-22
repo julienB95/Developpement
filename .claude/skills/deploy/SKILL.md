@@ -1,7 +1,7 @@
 ---
 name: deploy
-description: Deploie l'application crypto - "web" met a jour l'API et le site sur le NAS, "mobile" compile, signe et installe l'APK Android
-argument-hint: web | mobile
+description: Deploie l'application crypto - "web" met a jour l'API et le site sur le NAS, "mobile" compile, signe et installe l'APK Android, "*" fait le web puis le mobile
+argument-hint: web | mobile | *
 arguments: [cible]
 disable-model-invocation: true
 shell: powershell
@@ -32,8 +32,16 @@ Selon la cible, lis puis suis exactement l'une de ces procedures :
 Les deux sont independantes : un deploiement web ne republie jamais l'application,
 et une publication mobile ne touche jamais au NAS.
 
-Si la cible est vide ou differente de `web` et `mobile`, ne deploie rien : demande
-laquelle des deux est voulue.
+- `*` : les deux a la suite, toujours dans cet ordre, car l'application depend de l'API :
+  1. suis entierement [web.md](web.md) ;
+  2. si le web s'est arrete (refus, echec de la mise a jour, sante differente de 200),
+     ne lance pas le mobile : resume l'echec et arrete-toi ;
+  3. sinon, suis entierement [mobile.md](mobile.md). Son controle de l'API compare alors
+     le NAS a `HEAD`, qui vient d'etre deploye ;
+  4. termine par un seul resume reprenant le web puis le mobile.
+
+Si la cible est vide ou differente de `web`, `mobile` et `*`, ne deploie rien : demande
+laquelle est voulue.
 
 Regles communes :
 
