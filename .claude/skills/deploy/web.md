@@ -10,16 +10,25 @@ Ne les affiche pas dans tes reponses et ne lis aucune autre variable du `.env`.
 2. Si la branche est en avance sur `origin`, pousse-la (`git push`). Le NAS deploie
    depuis GitHub : sans push, il redeploierait l'ancienne version.
 
-3. Mets a jour et reconstruis sur le NAS, en une seule connexion :
+3. Mets a jour et reconstruis sur le NAS avec le script de deploiement, seule commande
+   que le compte peut lancer en root sans mot de passe :
 
    ```
-   ssh -p <NAS_PORT_SSH> <NAS_UTILISATEUR>@<NAS_HOTE> "cd <NAS_CHEMIN> && git pull --ff-only && cd application/crypto && sudo /usr/local/bin/docker compose build --build-arg VERSION_COMMIT=\$(git rev-parse --short HEAD) --build-arg VERSION_DATE=\$(git log -1 --format=%cI) --build-arg DEPLOYE_LE=\$(date -u +%Y-%m-%dT%H:%M:%SZ) && sudo /usr/local/bin/docker compose up -d && sudo /usr/local/bin/docker compose ps"
+   ssh -p <NAS_PORT_SSH> <NAS_UTILISATEUR>@<NAS_HOTE> "sudo -n /usr/local/bin/deployer-crypto deployer"
    ```
 
-   `git pull` ne touche pas au `.env` de production : il n'est pas versionne.
-   Les `\$(...)` doivent etre evalues sur le NAS, pas sur le poste : ils donnent la version
-   et la date de deploiement affichees dans le menu du compte. `sudo` ne transmet pas
-   l'environnement, d'ou les `--build-arg` plutot que des variables exportees.
+   Le script fait le `git pull` (avec le compte du depot, pas en root), reconstruit l'image
+   avec la version et la date de deploiement affichees dans le menu du compte, relance le
+   conteneur et affiche son etat. Il impose lui-meme les chemins de production
+   (`/usr/local/etc/deployer-crypto/variables.env`) : le `.env` du depot n'est pas lu.
+
+   S'il refuse parce que `docker-compose.yml` differe de la version approuvee, arrete-toi :
+   montre-moi la modification. Une fois relue, je l'approuve moi-meme sur le NAS, avec mon
+   mot de passe : `sudo sh -c 'sha256sum <NAS_CHEMIN>/application/crypto/docker-compose.yml > /usr/local/etc/deployer-crypto/docker-compose.sha256'`.
+   N'essaie jamais de contourner ce refus.
+
+   Utilise le `ssh` de Windows (PowerShell) : la cle SSH a une phrase de passe tenue par
+   ssh-agent, que le `ssh` de Git Bash ne voit pas.
 
 4. Controle la sante du site, toujours par SSH :
 
@@ -32,14 +41,14 @@ Ne les affiche pas dans tes reponses et ne lis aucune autre variable du `.env`.
 5. En cas d'echec a l'etape 3 ou 4, recupere les journaux et arrete-toi :
 
    ```
-   ssh -p <NAS_PORT_SSH> <NAS_UTILISATEUR>@<NAS_HOTE> "cd <NAS_CHEMIN>/application/crypto && sudo /usr/local/bin/docker compose logs --tail 50 crypto"
+   ssh -p <NAS_PORT_SSH> <NAS_UTILISATEUR>@<NAS_HOTE> "sudo -n /usr/local/bin/deployer-crypto journaux 50"
    ```
 
 6. Resume en quelques lignes : le commit deploye, l'etat du conteneur et le code de sante.
    Signale toute anomalie sans la corriger tant que je ne l'ai pas demande.
 
 Si le schema de la base a change depuis le dernier deploiement, previens-moi :
-la migration se lance a part, `sudo /usr/local/bin/docker compose run --rm crypto node application/crypto/api/migrer.js`,
+la migration se lance a part, `sudo -n /usr/local/bin/deployer-crypto migrer`,
 et elle n'est jamais declenchee automatiquement par ce deploiement.
 
 L'API sert aussi l'application mobile, y compris ses versions deja installees :
