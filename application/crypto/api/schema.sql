@@ -272,6 +272,22 @@ ALTER TABLE utilisateur
     ADD CONSTRAINT utilisateur_staking_acquisition
     CHECK (staking_acquisition IN ('nulle', 'valeur_recue'));
 
+-- Méthode de calcul du prix d'achat moyen et des plus-values affichés :
+--   'france' : prix moyen au coût moyen pondéré, plus-values de cession selon
+--              l'article 150 VH bis (portefeuille global), comme la 2086 ;
+--   'cmp'    : coût moyen pondéré pour le prix moyen et pour les plus-values ;
+--   'fifo'   : premier entré, premier sorti, plateforme par plateforme, comme
+--              un courtier allemand (Trade Republic).
+-- Ce n'est qu'un choix d'affichage : la déclaration fiscale applique toujours
+-- la méthode française, imposée par la loi, quel que soit ce réglage.
+ALTER TABLE utilisateur
+    ADD COLUMN IF NOT EXISTS methode_calcul TEXT NOT NULL DEFAULT 'france';
+
+ALTER TABLE utilisateur DROP CONSTRAINT IF EXISTS utilisateur_methode_calcul;
+ALTER TABLE utilisateur
+    ADD CONSTRAINT utilisateur_methode_calcul
+    CHECK (methode_calcul IN ('france', 'cmp', 'fifo'));
+
 -- Compte créé par un administrateur dont le mot de passe reste à définir
 -- par la personne elle-même, via le lien qui lui est transmis.
 ALTER TABLE utilisateur

@@ -31,56 +31,67 @@ class _EcranPortefeuilleState extends State<EcranPortefeuille> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Mon portefeuille')),
-      body: VueChargee<Portefeuille>(
-        charger: _charger,
-        construire: (context, portefeuille, _) => ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.only(bottom: 24),
-          children: [
-            _CarteTotal(portefeuille: portefeuille),
-            if (portefeuille.lignes.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('Aucune crypto détenue pour le moment.', textAlign: TextAlign.center),
+      // Changer de méthode de calcul ou de convention de staking dans le profil
+      // change les prix moyens et les plus-values : l'écran se recharge alors
+      body: ListenableBuilder(
+        listenable: widget.session,
+        builder: (context, _) => _vue(context),
+      ),
+    );
+  }
+
+  Widget _vue(BuildContext context) {
+    final compte = widget.session.compte;
+    return VueChargee<Portefeuille>(
+      key: ValueKey('${compte?.methodeCalcul}-${compte?.stakingAcquisition}'),
+      charger: _charger,
+      construire: (context, portefeuille, _) => ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [
+          _CarteTotal(portefeuille: portefeuille),
+          if (portefeuille.lignes.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(24),
+              child: Text('Aucune crypto détenue pour le moment.', textAlign: TextAlign.center),
+            ),
+          for (final ligne in portefeuille.lignes)
+            ListTile(
+              leading: LogoCrypto(ligne.idCrypto),
+              title: Text(ligne.libelle),
+              subtitle: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: formaterQuantite(ligne.quantite, ligne.idCrypto),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const TextSpan(text: '\n'),
+                    TextSpan(
+                      text: ligne.prix == null
+                          ? 'Cours indisponible'
+                          : '${formaterCours(ligne.prix, portefeuille.devise)} / ${ligne.idCrypto}',
+                      style: TextStyle(color: _couleurCours(ligne)),
+                    ),
+                    if (ligne.prixMoyen != null)
+                      TextSpan(text: '\nAch. Moy. ${formaterCours(ligne.prixMoyen, 'EUR')} / ${ligne.idCrypto}'),
+                  ],
+                ),
               ),
-            for (final ligne in portefeuille.lignes)
-              ListTile(
-                leading: LogoCrypto(ligne.idCrypto),
-                title: Text(ligne.libelle),
-                subtitle: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(
-                        text: formaterQuantite(ligne.quantite, ligne.idCrypto),
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const TextSpan(text: '\n'),
-                      TextSpan(
-                        text: ligne.prix == null
-                            ? 'Cours indisponible'
-                            : '${formaterCours(ligne.prix, portefeuille.devise)} / ${ligne.idCrypto}',
-                        style: TextStyle(color: _couleurCours(ligne)),
-                      ),
-                      if (ligne.prixMoyen != null)
-                        TextSpan(text: '\nAch. Moy. ${formaterCours(ligne.prixMoyen, 'EUR')} / ${ligne.idCrypto}'),
-                    ],
-                  ),
-                ),
-                isThreeLine: true,
-                trailing: Text(
-                  formaterMontant(ligne.total, portefeuille.devise),
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => EcranMaCrypto(session: widget.session, idCrypto: ligne.idCrypto),
-                  ),
+              isThreeLine: true,
+              trailing: Text(
+                formaterMontant(ligne.total, portefeuille.devise),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => EcranMaCrypto(session: widget.session, idCrypto: ligne.idCrypto),
                 ),
               ),
-            PlusValuesAnnee(key: ValueKey(_generation), session: widget.session),
-          ],
-        ),
+            ),
+          PlusValuesAnnee(key: ValueKey(_generation), session: widget.session),
+        ],
       ),
     );
   }
@@ -223,13 +234,15 @@ class _PlusValuesAnneeState extends State<PlusValuesAnnee> {
 
     return [
       ListTile(
-        title: Row(
+        title: Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             const Text('Total'),
-            if (pv.estimation) ...[
-              const SizedBox(width: 8),
-              const Chip(label: Text('Estimées'), visualDensity: VisualDensity.compact),
-            ],
+            if (pv.estimation) const Chip(label: Text('Estimées'), visualDensity: VisualDensity.compact),
+            // Hors méthode française, le chiffre n'est pas celui de la déclaration
+            if (pv.methode != 'france')
+              Chip(label: Text(courtMethode(pv.methode)), visualDensity: VisualDensity.compact),
           ],
         ),
         subtitle: Text(cessions),
@@ -275,6 +288,17 @@ class _PlusValuesAnneeState extends State<PlusValuesAnnee> {
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),
+      // La méthode change le chiffre : elle est toujours rappelée
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        child: Text(
+          '${explicationPlusValues(pv.methode)}'
+          '${pv.methode == 'france' ? '' : ' Simple affichage : la déclaration fiscale applique toujours '
+              'la méthode française, son montant sera donc différent.'}'
+          ' Méthode modifiable dans le profil.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ),
     ];
   }
 }

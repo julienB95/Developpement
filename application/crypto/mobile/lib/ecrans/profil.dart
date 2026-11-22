@@ -45,7 +45,8 @@ class _EcranProfilState extends State<EcranProfil> {
       _appliquer(() => widget.session.api.modifier('/moi/devise', {'devise': devise}));
 
   // PUT /moi attend le profil complet : on renvoie l'existant avec la préférence modifiée
-  void _changerPreferences(Compte compte, {String? plateforme, String? staking, bool viderPlateforme = false}) {
+  void _changerPreferences(Compte compte,
+      {String? plateforme, String? staking, String? methode, bool viderPlateforme = false}) {
     _appliquer(() => widget.session.api.modifier('/moi', {
           'courriel': compte.courriel,
           'nom': compte.nom,
@@ -53,6 +54,7 @@ class _EcranProfilState extends State<EcranProfil> {
           'devise': compte.devise,
           'plateforme_defaut': viderPlateforme ? null : (plateforme ?? compte.plateformeDefaut),
           'staking_acquisition': staking ?? compte.stakingAcquisition,
+          'methode_calcul': methode ?? compte.methodeCalcul,
         }));
   }
 
@@ -135,6 +137,44 @@ class _EcranProfilState extends State<EcranProfil> {
                     RadioListTile<String>(value: 'nulle', title: Text('Nul — la récompense n\'a rien coûté')),
                     RadioListTile<String>(value: 'valeur_recue', title: Text('Sa valeur à la réception')),
                   ],
+                ),
+              ),
+              const TitreSection('Calcul du prix moyen et des plus-values'),
+              RadioGroup<String>(
+                groupValue: compte.methodeCalcul,
+                onChanged: (valeur) {
+                  if (!_enCours && valeur != null) _changerPreferences(compte, methode: valeur);
+                },
+                child: const Column(
+                  children: [
+                    RadioListTile<String>(
+                      value: 'france',
+                      title: Text('Méthode fiscale française'),
+                      subtitle: Text('Plus-values sur le portefeuille global, comme la 2086 (prix moyen en CMP). '
+                          'Exemple : 1 000 € de BTC et 1 000 € d\'ETH achetés ; le BTC vaut ensuite 3 000 € '
+                          'et l\'ETH 500 €. Vendre 1 000 € de BTC donne 429 € de plus-value ici, '
+                          'contre 667 € en CMP.'),
+                    ),
+                    RadioListTile<String>(
+                      value: 'cmp',
+                      title: Text('Coût moyen pondéré (CMP)'),
+                      subtitle: Text('Chaque vente est comparée au prix d\'achat moyen de la crypto.'),
+                    ),
+                    RadioListTile<String>(
+                      value: 'fifo',
+                      title: Text('Premier entré, premier sorti (FIFO)'),
+                      subtitle: Text('Chaque vente retire vos achats les plus anciens, plateforme par '
+                          'plateforme, comme chez Trade Republic.'),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                child: Text(
+                  'Simple choix d\'affichage : la déclaration fiscale, sur le site, applique toujours '
+                  'la méthode française, la seule admise par la loi (article 150 VH bis).',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
               const Divider(height: 32),

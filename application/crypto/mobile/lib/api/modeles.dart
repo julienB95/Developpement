@@ -15,6 +15,7 @@ class Compte {
   final String devise;
   final String? plateformeDefaut;
   final String stakingAcquisition;
+  final String methodeCalcul;
 
   Compte.json(Map<String, dynamic> j)
       : id = j['id'] as int,
@@ -24,7 +25,8 @@ class Compte {
         estAdmin = j['est_admin'] == true,
         devise = j['devise'] as String? ?? 'EUR',
         plateformeDefaut = j['plateforme_defaut'] as String?,
-        stakingAcquisition = j['staking_acquisition'] as String? ?? 'nulle';
+        stakingAcquisition = j['staking_acquisition'] as String? ?? 'nulle',
+        methodeCalcul = j['methode_calcul'] as String? ?? 'france';
 
   String get nomComplet => '$prenom $nom'.trim();
 
@@ -223,6 +225,7 @@ class Portefeuille {
   final String? source;
   final String? releveLe;
   final String? coursIndisponible;
+  final String methodeCalcul;
 
   Portefeuille.json(Map<String, dynamic> j)
       : lignes = _liste(j['lignes']).map(LignePortefeuille.json).toList(),
@@ -231,7 +234,8 @@ class Portefeuille {
         devise = j['devise'] as String? ?? 'EUR',
         source = j['source'] as String?,
         releveLe = j['releve_le'] as String?,
-        coursIndisponible = j['cours_indisponible'] as String?;
+        coursIndisponible = j['cours_indisponible'] as String?,
+        methodeCalcul = j['methode_calcul'] as String? ?? 'france';
 }
 
 class DetailCrypto {
@@ -251,6 +255,8 @@ class DetailCrypto {
   final String? source;
   final String? releveLe;
   final String? coursIndisponible;
+  final String methodeCalcul;
+  final String stakingAcquisition;
 
   DetailCrypto.json(Map<String, dynamic> j)
       : idCrypto = j['id_crypto'] as String,
@@ -268,7 +274,9 @@ class DetailCrypto {
         variation24h = j['variation_24h'] as num?,
         source = j['source'] as String?,
         releveLe = j['releve_le'] as String?,
-        coursIndisponible = j['cours_indisponible'] as String?;
+        coursIndisponible = j['cours_indisponible'] as String?,
+        methodeCalcul = j['methode_calcul'] as String? ?? 'france',
+        stakingAcquisition = j['staking_acquisition'] as String? ?? 'nulle';
 }
 
 // --- Plus-values ----------------------------------------------------------
@@ -309,6 +317,7 @@ class PlusValues {
   final bool estimation;
   final String conventionStaking;
   final int operationsStaking;
+  final String methode;
 
   PlusValues.json(Map<String, dynamic> j)
       : annee = j['annee'] as int,
@@ -321,5 +330,40 @@ class PlusValues {
         premiereAnnee = j['premiere_annee'] as int?,
         estimation = j['estimation'] != null,
         conventionStaking = (j['staking'] as Map<String, dynamic>?)?['convention'] as String? ?? 'nulle',
-        operationsStaking = (j['staking'] as Map<String, dynamic>?)?['operations'] as int? ?? 0;
+        operationsStaking = (j['staking'] as Map<String, dynamic>?)?['operations'] as int? ?? 0,
+        methode = j['methode'] as String? ?? 'france';
 }
+
+// --- Méthode de calcul du profil --------------------------------------------
+// Choix d'affichage du prix moyen et des plus-values. La déclaration fiscale
+// (sur le site) suit toujours la méthode française, quel que soit ce réglage.
+
+const List<String> methodesCalcul = ['france', 'cmp', 'fifo'];
+
+String libelleMethode(String methode) => switch (methode) {
+      'cmp' => 'Coût moyen pondéré (CMP)',
+      'fifo' => 'Premier entré, premier sorti (FIFO)',
+      _ => 'Méthode fiscale française',
+    };
+
+String courtMethode(String methode) => switch (methode) {
+      'cmp' => 'CMP',
+      'fifo' => 'FIFO',
+      _ => 'Méthode fiscale française',
+    };
+
+String explicationPrixMoyen(String methode) => methode == 'fifo'
+    ? 'Prix d\'achat moyen en FIFO, frais compris : chaque vente retire vos achats '
+        'les plus anciens sur sa plateforme, comme chez Trade Republic.'
+    : 'Prix d\'achat moyen au coût moyen pondéré, frais compris : chaque achat se fond '
+        'dans la moyenne, une vente ne la modifie pas.';
+
+String explicationPlusValues(String methode) => switch (methode) {
+      'cmp' => 'Coût moyen pondéré (CMP) : chaque vente est comparée au prix d\'achat moyen '
+          'de la crypto au moment de la vente.',
+      'fifo' => 'FIFO (premier entré, premier sorti) : chaque vente est comparée à vos achats '
+          'les plus anciens sur sa plateforme, comme chez Trade Republic.',
+      _ => 'Méthode fiscale française (article 150 VH bis), celle de la déclaration 2086 : toutes '
+          'les cryptos forment un seul portefeuille, et chaque vente déduit une part du prix d\'achat '
+          'de tout le portefeuille, au prorata de sa valeur.',
+    };

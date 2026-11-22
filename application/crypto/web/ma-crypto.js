@@ -117,7 +117,8 @@
         champs.variation.textContent = donnees.variation_24h === null ? '' : M.formaterVariation(donnees.variation_24h) + ' sur 24 h';
         champs.valeur.textContent = donnees.valeur === null ? '—' : C.formaterMontant(donnees.valeur, donnees.devise);
         champs.prixMoyen.textContent = donnees.prix_moyen === null ? '—' : C.formaterMontant(donnees.prix_moyen, donnees.devise);
-        champs.cout.textContent = 'Coût de la position : ' + C.formaterMontant(donnees.cout_acquisition, donnees.devise);
+        champs.cout.textContent = 'Coût de la position : ' + C.formaterMontant(donnees.cout_acquisition, donnees.devise)
+            + (donnees.methode_calcul === 'fifo' ? ' · FIFO' : ' · coût moyen pondéré');
 
         rendrePerformance();
 
@@ -125,10 +126,15 @@
         var releve = donnees.releve_le && donnees.cours !== null
             ? 'Cours ' + donnees.source + ' du ' + C.formaterDateHeure(donnees.releve_le) + '.'
             : 'Cours indisponible' + (donnees.cours_indisponible ? ' : ' + donnees.cours_indisponible : '') + '.';
-        releve += ' Prix moyen calculé au coût moyen pondéré, frais compris ; '
+        // Le prix moyen, le coût et la performance dépendent de la méthode du
+        // profil : la note la nomme, pour qu'un écart avec un courtier s'explique
+        var methode = C.methodeCalcul(donnees.methode_calcul);
+        champs.prixMoyen.title = methode.prixMoyen;
+        releve += ' ' + methode.prixMoyen + ' '
             + (donnees.staking_acquisition === 'valeur_recue'
-                ? 'le staking y compte pour sa valeur à la réception.'
-                : 'le staking y compte pour un coût nul.');
+                ? 'Le staking y compte pour sa valeur à la réception.'
+                : 'Le staking y compte pour un coût nul.')
+            + ' Méthode modifiable dans votre profil.';
         champs.releve.textContent = releve;
 
         zoneCrypto.hidden = false;

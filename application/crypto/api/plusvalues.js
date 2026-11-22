@@ -30,10 +30,15 @@
 // convention est-elle portee par le compte (utilisateur.staking_acquisition)
 // et rappelee dans le resultat, jamais choisie ici.
 //
+// Ce calcul est le seul que suit la declaration. Le bilan de l'annee affiche a
+// l'accueil peut, lui, suivre la methode choisie dans le profil (cout moyen
+// pondere ou FIFO, voir methodes.js) : c'est un affichage, pas une declaration.
+//
 // Aucun montant ne passe par un flottant JavaScript : toute l'arithmetique est
 // faite par PostgreSQL en NUMERIC, les montants circulent en chaine decimale et
 // l'arrondi n'a lieu qu'a l'affichage.
 const db = require('../../_commun/api/db');
+const methodes = require('./methodes');
 
 // Une cession par ligne, dans l'ordre chronologique, avec tout ce que la
 // formule reclame sauf le cumul des fractions — qui, lui, se construit cession
@@ -327,12 +332,112 @@ async function simuler(utilisateurId, staking, cumulDepart, cotees) {
     return lignes;
 }
 
+// Vente simulee de tout ce qui est detenu, pour les methodes d'affichage CMP et
+// FIFO : chaque crypto vaut son cours du moment, et sa plus-value est cette
+// valeur moins le cout de ce qui reste selon la methode. Contrairement a la
+// methode francaise, une crypto sans cours ne fausse pas les autres : elle est
+// seulement absente de l'estimation, ce que la reserve dit.
+//   $1..$3 positions (crypto, quantite, cout)   $4 et $5 cours en euro
+const SIMULATION_METHODE = `
+SELECT p.id_crypto,
+       c.libelle,
+       p.quantite::text AS quantite,
+       (p.quantite * k.prix)::text AS valeur,
+       (p.quantite * k.prix - p.cout)::text AS plus_value,
+       (now() AT TIME ZONE 'Europe/Paris')::date AS jour
+FROM unnest($1::text[], $2::numeric[], $3::numeric[]) AS p(id_crypto, quantite, cout)
+JOIN crypto c ON c.id = p.id_crypto
+LEFT JOIN unnest($4::text[], $5::numeric[]) AS k(id_crypto, prix) ON k.id_crypto = p.id_crypto
+ORDER BY p.quantite * k.prix DESC NULLS LAST, c.libelle`;
+
+async function simulerSelonMethode(utilisateurId, methode, stakingValorise, cotees) {
+    const detenues = (await methodes.positions(utilisateurId, methode, stakingValorise))
+        .filter((p) => p.quantite.charAt(0) !== '-' && !/^0(\.0*)?$/.test(p.quantite));
+    if (!detenues.length) return [];
+
+    const { rows } = await db.requete(SIMULATION_METHODE, [
+        detenues.map((p) => p.id_crypto), detenues.map((p) => p.quantite), detenues.map((p) => p.cout),
+        cotees.map((actif) => actif.symbole), cotees.map((actif) => actif.prix),
+    ]);
+    const parCrypto = new Map(detenues.map((p) => [p.id_crypto, p]));
+    const nonCotees = rows.filter((r) => r.valeur === null).length;
+    const horodatage = new Date().toISOString();
+
+    return rows.filter((r) => r.valeur !== null).map((r) => {
+        const position = parCrypto.get(r.id_crypto);
+        const motifs = [];
+        if (position.sans_prix > 0) motifs.push(`${position.sans_prix} ligne(s) sans prix d'acquisition`);
+        if (position.ecart) motifs.push('quantité détenue différente de celle des achats, plateforme par plateforme');
+        if (nonCotees > 0) motifs.push(`${nonCotees} crypto(s) détenue(s) sans cours actuel, hors estimation`);
+        return {
+            id: null,
+            horodatage,
+            jour: r.jour,
+            id_crypto: r.id_crypto,
+            libelle: r.libelle,
+            quantite: r.quantite,
+            prix_cession: r.valeur,
+            valeur_globale: null,
+            plus_value: r.plus_value,
+            complet: motifs.length === 0,
+            reserves: motifs,
+            simulee: true,
+        };
+    });
+}
+
+// Meme bilan que parAnnee, mais au cout moyen pondere ou en FIFO : la
+// plus-value d'une vente est son prix net de frais moins le cout de ce qu'elle
+// a fait sortir, selon la methode. Affichage seulement, jamais la declaration.
+async function parAnneeSelonMethode(utilisateurId, annee, simulation, methode) {
+    const staking = await conventionStaking(utilisateurId);
+    const stakingValorise = staking.convention === 'valeur_recue';
+    const retenues = (await methodes.cessions(utilisateurId, methode, stakingValorise))
+        .filter((c) => c.annee === annee)
+        .map((c) => ({
+            id: c.id,
+            horodatage: c.horodatage,
+            jour: c.jour,
+            id_crypto: c.id_crypto,
+            libelle: c.libelle,
+            quantite: c.quantite,
+            prix_cession: c.prix_cession,
+            valeur_globale: null,
+            plus_value: c.plus_value,
+            complet: c.complet,
+            reserves: c.reserves,
+            simulee: false,
+        }));
+
+    if (simulation && simulation.cotees) {
+        retenues.push(...await simulerSelonMethode(utilisateurId, methode, stakingValorise, simulation.cotees));
+    }
+
+    const resultat = await regrouper(annee, retenues, await bornes(utilisateurId));
+    resultat.methode = methode;
+    resultat.staking = staking;
+    resultat.estimation = simulation
+        ? {
+            source: simulation.source || null,
+            releve_le: simulation.releve_le || null,
+            cours_indisponible: simulation.cours_indisponible || null,
+        }
+        : null;
+    return resultat;
+}
+
 // Les cessions de l'annee demandee, regroupees par crypto. Pour l'annee en
 // cours, `simulation` porte les cours du moment ({ cotees, releve_le, source }) :
 // ce qui est encore detenu est alors compte comme vendu aujourd'hui, et le
 // resultat est une estimation. Sans cours, `simulation.cours_indisponible`
 // en donne la raison et seules les cessions reelles sont retenues.
-async function parAnnee(utilisateurId, annee, simulation) {
+// `methode` est le choix d'affichage du profil : 'france' (par defaut) suit
+// l'article 150 VH bis, 'cmp' et 'fifo' passent par parAnneeSelonMethode.
+async function parAnnee(utilisateurId, annee, simulation, methode = 'france') {
+    if (methode !== 'france') {
+        return parAnneeSelonMethode(utilisateurId, annee, simulation, methode);
+    }
+
     const { staking, cessions, cumul } = await derouler(utilisateurId);
     const retenues = cessions
         .filter((c) => c.annee === annee)
@@ -356,6 +461,7 @@ async function parAnnee(utilisateurId, annee, simulation) {
     }
 
     const resultat = await regrouper(annee, retenues, await bornes(utilisateurId));
+    resultat.methode = 'france';
     resultat.staking = staking;
     resultat.estimation = simulation
         ? {

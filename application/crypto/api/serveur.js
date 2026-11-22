@@ -11,6 +11,7 @@ const marche = require('./marche');
 const actualites = require('./actualites');
 const valeurs = require('./valeurs');
 const plusvalues = require('./plusvalues');
+const methodes = require('./methodes');
 const sauvegarde = require('./sauvegarde');
 const motdepasse = require('../../_commun/api/motdepasse');
 const courriel = require('../../_commun/api/courriel');
@@ -614,7 +615,11 @@ route('GET', '/api/crypto/plus-values', async ({ req, url }) => {
         }
         : null;
 
-    const bilan = await plusvalues.parAnnee(utilisateur.id, annee, simulation);
+    // Méthode d'affichage du profil. La déclaration, elle, ne passe jamais par
+    // ici : ses routes appliquent toujours la méthode française.
+    const bilan = await plusvalues.parAnnee(
+        utilisateur.id, annee, simulation, utilisateur.methode_calcul || 'france'
+    );
 
     // Les cryptos se suivent comme dans « Mes cryptos » : par valeur détenue en
     // euro, décroissante. Une crypto entièrement cédée, ou sans cours, finit la
@@ -950,15 +955,16 @@ route('GET', '/api/crypto/mon-portefeuille', async ({ req }) => {
         [utilisateur.id, cotees.map((actif) => actif.symbole), cotees.map((actif) => actif.prix)]
     );
 
-    // Prix d'achat moyen de chaque ligne, au coût moyen pondéré : même calcul
-    // que la page détaillée, pour que les deux écrans affichent le même prix
-    const stakingValorise = utilisateur.staking_acquisition === 'valeur_recue';
-    await Promise.all(rows.map(async (ligne) => {
-        const { rows: [suivi] } = await db.requete(SUIVI_POSITION, [
-            utilisateur.id, ligne.id_crypto, stakingValorise, null,
-        ]);
-        ligne.prix_moyen = suivi ? suivi.prix_moyen : null;
-    }));
+    // Prix d'achat moyen de chaque ligne, selon la méthode du profil : même
+    // calcul que la page détaillée, pour que les deux écrans affichent le même prix
+    const methode = utilisateur.methode_calcul || 'france';
+    const suivis = await methodes.positions(
+        utilisateur.id, methode, utilisateur.staking_acquisition === 'valeur_recue'
+    );
+    const prixMoyens = new Map(suivis.map((suivi) => [suivi.id_crypto, suivi.prix_moyen]));
+    rows.forEach((ligne) => {
+        ligne.prix_moyen = prixMoyens.has(ligne.id_crypto) ? prixMoyens.get(ligne.id_crypto) : null;
+    });
 
     // Total du portefeuille, additionné par PostgreSQL : seules les lignes
     // cotées y entrent, les autres sont comptées pour que l'écran le dise.
@@ -974,6 +980,7 @@ route('GET', '/api/crypto/mon-portefeuille', async ({ req }) => {
             lignes: rows,
             total: valorisees.length ? somme.total : null,
             lignes_sans_cours: rows.length - valorisees.length,
+            methode_calcul: methode,
             devise: 'EUR',
             source: marcheEur ? marcheEur.source : null,
             releve_le: marcheEur ? marcheEur.releve_le : null,
@@ -985,55 +992,21 @@ route('GET', '/api/crypto/mon-portefeuille', async ({ req }) => {
 // Detail d'une crypto du portefeuille : quantite, cours, valeur, prix moyen
 // d'acquisition et performance latente.
 //
-// Le prix moyen suit la methode du cout moyen pondere, operation par operation :
-// un achat ajoute sa quantite et son cout (frais compris), une vente retire sa
-// quantite au prix moyen du moment, sans le modifier. Un simple quotient des
-// achats par les quantites achetees serait faux des qu'un rachat suit une vente.
-// Le staking ajoute sa quantite ; son cout suit la convention du compte, comme
-// pour les plus-values : nul, ou valeur a la reception.
+// Le prix moyen et le cout de ce qui reste suivent la methode choisie dans le
+// profil (voir methodes.js) : cout moyen pondere par defaut, ou premier entre
+// premier sorti plateforme par plateforme. La valeur et la performance en
+// decoulent : valeur au cours du moment moins cout de ce qui reste.
 //
 // Tout le calcul est fait en NUMERIC par PostgreSQL ; le cours arrive de la
 // source en chaine et ne passe jamais par un flottant.
-const SUIVI_POSITION = `
-WITH RECURSIVE ops AS (
-    SELECT row_number() OVER (ORDER BY o.horodatage, o.id) AS rang,
-           o.type,
-           o.quantite::numeric AS quantite,
-           CASE WHEN o.type = 'achat'
-                    THEN o.quantite * COALESCE(o.prix_unitaire, 0) + o.frais
-                WHEN o.type = 'staking' AND $3
-                    THEN o.quantite * COALESCE(o.prix_unitaire, 0)
-                ELSE 0 END::numeric AS cout
-    FROM operation o
-    WHERE o.utilisateur_id = $1 AND o.id_crypto = $2
-),
-suivi (rang, quantite, cout) AS (
-    SELECT 0::bigint, 0::numeric, 0::numeric
-    UNION ALL
-    SELECT o.rang,
-           CASE WHEN o.type = 'vente' THEN s.quantite - o.quantite
-                ELSE s.quantite + o.quantite END,
-           CASE WHEN o.type <> 'vente' THEN s.cout + o.cout
-                WHEN s.quantite > 0
-                    THEN s.cout * GREATEST(s.quantite - o.quantite, 0) / s.quantite
-                ELSE 0 END
-    FROM suivi s
-    JOIN ops o ON o.rang = s.rang + 1
-),
-position_finale AS (
-    SELECT quantite, cout FROM suivi ORDER BY rang DESC LIMIT 1
-)
-SELECT (SELECT count(*)::int FROM ops) AS operations,
-       p.quantite::text AS quantite,
-       p.cout::text AS cout_acquisition,
-       CASE WHEN p.quantite > 0 THEN (p.cout / p.quantite)::text END AS prix_moyen,
-       $4::numeric::text AS cours,
-       (p.quantite * $4::numeric)::text AS valeur,
-       (p.quantite * $4::numeric - p.cout)::text AS performance,
-       CASE WHEN p.cout > 0
-            THEN ((p.quantite * $4::numeric - p.cout) / p.cout * 100)::text END
-           AS performance_pourcentage
-FROM position_finale p`;
+//   $1 quantite detenue   $2 cout de ce qui reste   $3 cours (NULL : inconnu)
+const VALORISATION_POSITION = `
+SELECT $3::numeric::text AS cours,
+       ($1::numeric * $3::numeric)::text AS valeur,
+       ($1::numeric * $3::numeric - $2::numeric)::text AS performance,
+       CASE WHEN $2::numeric > 0
+            THEN (($1::numeric * $3::numeric - $2::numeric) / $2::numeric * 100)::text END
+           AS performance_pourcentage`;
 
 route('GET', '/api/crypto/mon-portefeuille/:id', async ({ req, params }) => {
     const utilisateur = await exigerConnexion(req);
@@ -1060,16 +1033,24 @@ route('GET', '/api/crypto/mon-portefeuille/:id', async ({ req, params }) => {
         : null;
     if (marcheEur && !cote) coursIndisponible = `Aucun cours ${marcheEur.source} pour ${idCrypto}`;
 
-    const { rows } = await db.requete(SUIVI_POSITION, [
-        utilisateur.id,
-        idCrypto,
-        utilisateur.staking_acquisition === 'valeur_recue',
-        cote ? cote.prix : null,
-    ]);
-    const position = rows[0];
-    if (!position.operations) {
+    const methode = utilisateur.methode_calcul || 'france';
+    const [suivi] = await methodes.positions(
+        utilisateur.id, methode, utilisateur.staking_acquisition === 'valeur_recue', idCrypto
+    );
+    if (!suivi || !suivi.operations) {
         throw new ErreurClient('Aucune opération enregistrée sur cette crypto', 404);
     }
+    const { rows: [valorisation] } = await db.requete(VALORISATION_POSITION, [
+        suivi.quantite, suivi.cout, cote ? cote.prix : null,
+    ]);
+    const position = {
+        operations: suivi.operations,
+        quantite: suivi.quantite,
+        cout_acquisition: suivi.cout,
+        prix_moyen: suivi.prix_moyen,
+        ...valorisation,
+        methode_calcul: methode,
+    };
 
     return {
         code: 200,
@@ -1113,6 +1094,7 @@ function comptePublic(ligne) {
         mot_de_passe_a_definir: ligne.mot_de_passe_a_definir,
         plateforme_defaut: ligne.plateforme_defaut,
         staking_acquisition: ligne.staking_acquisition,
+        methode_calcul: ligne.methode_calcul,
         cree_le: ligne.cree_le,
     };
 }
@@ -1215,7 +1197,7 @@ const EMPREINTE_FACTICE = motdepasse.hacher(crypto.randomBytes(16).toString('hex
 EMPREINTE_FACTICE.catch((err) => console.error('Empreinte factice de connexion :', err));
 
 const CHAMPS_COMPTE = `id, courriel, nom, prenom, est_actif, est_admin, devise,
-                autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`;
+                autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, methode_calcul, cree_le`;
 
 // Une seule reponse pour tout echec : adresse inconnue, mauvais mot de passe,
 // compte bloque ou desactive. Toute difference dirait quelles adresses existent,
@@ -1514,6 +1496,14 @@ route('PUT', '/api/crypto/moi', async ({ req, corps }) => {
             `Champ staking_acquisition : ${STAKING_ACQUISITION.join(' ou ')} attendu`);
     }
 
+    // Méthode d'affichage du prix moyen et des plus-values. Absente du corps
+    // (application d'une version antérieure), la valeur enregistrée est gardée.
+    const methodeCalcul = String(corps.methode_calcul
+        || utilisateur.methode_calcul || 'france');
+    if (!methodes.METHODES.includes(methodeCalcul)) {
+        throw new ErreurClient(`Champ methode_calcul : ${methodes.METHODES.join(', ')} attendu`);
+    }
+
     // Changer d'adresse ouvre la reinitialisation du mot de passe a la nouvelle :
     // une session volee suffirait sinon a s'approprier le compte pour de bon.
     const ancienneAdresse = utilisateur.courriel;
@@ -1522,10 +1512,10 @@ route('PUT', '/api/crypto/moi', async ({ req, corps }) => {
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET courriel = $2, nom = $3, prenom = $4, devise = $5,
-                plateforme_defaut = $6, staking_acquisition = $7
+                plateforme_defaut = $6, staking_acquisition = $7, methode_calcul = $8
          WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`,
-        [utilisateur.id, adresse, nom, prenom, devise, plateformeDefaut, stakingAcquisition]
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, methode_calcul, cree_le`,
+        [utilisateur.id, adresse, nom, prenom, devise, plateformeDefaut, stakingAcquisition, methodeCalcul]
     );
     if (!rows.length) throw new ErreurClient('Compte introuvable', 404);
 
@@ -1595,7 +1585,7 @@ route('PUT', '/api/crypto/moi/devise', async ({ req, corps }) => {
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET devise = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, methode_calcul, cree_le`,
         [utilisateur.id, devise]
     );
     return { code: 200, corps: comptePublic(rows[0]) };
@@ -1629,7 +1619,7 @@ route('GET', '/api/crypto/administration/utilisateurs', async ({ req }) => {
     await exigerAdmin(req);
 
     const { rows } = await db.requete(
-        `SELECT id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le,
+        `SELECT id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, methode_calcul, cree_le,
                 (mot_de_passe_hash IS NOT NULL) AS a_mot_de_passe,
                 (google_sub IS NOT NULL) AS a_google,
                 (SELECT count(*) FROM session s WHERE s.utilisateur_id = u.id AND s.expire_le > now())::int AS sessions_ouvertes,
@@ -1652,7 +1642,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/activation', async ({
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET est_actif = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, methode_calcul, cree_le`,
         [id, estActif]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1685,7 +1675,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/administrateur', asyn
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET est_admin = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, methode_calcul, cree_le`,
         [id, estAdmin]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1702,7 +1692,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/google', async ({ req
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET autorise_google = $2 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, methode_calcul, cree_le`,
         [id, autorise]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1718,7 +1708,7 @@ route('POST', '/api/crypto/administration/utilisateurs/:id/deblocage', async ({ 
 
     const { rows } = await db.requete(
         `UPDATE utilisateur SET est_bloque = FALSE, tentatives_echouees = 0 WHERE id = $1
-         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`,
+         RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise, autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, methode_calcul, cree_le`,
         [id]
     );
     if (!rows.length) throw new ErreurClient('Utilisateur introuvable', 404);
@@ -1766,7 +1756,7 @@ route('POST', '/api/crypto/administration/utilisateurs', async ({ req, corps }) 
              (courriel, nom, prenom, mot_de_passe_hash, autorise_google, mot_de_passe_a_definir)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id, courriel, nom, prenom, est_actif, est_admin, devise,
-                   autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, cree_le`,
+                   autorise_google, est_bloque, mot_de_passe_a_definir, plateforme_defaut, staking_acquisition, methode_calcul, cree_le`,
         [adresse, nom, prenom, empreinte, autoriseGoogle, aDefinir]
     );
 

@@ -122,6 +122,38 @@
                     demandez à votre conseil.
                 </p>
             </div>
+
+            <div class="champ">
+                <label for="methode_calcul">Calcul du prix moyen et des plus-values</label>
+                <select id="methode_calcul" name="methode_calcul">
+                    <option value="france">Méthode fiscale française : plus-values sur le portefeuille global, comme la 2086 (prix moyen en CMP)</option>
+                    <option value="cmp">Coût moyen pondéré (CMP)</option>
+                    <option value="fifo">Premier entré, premier sorti (FIFO) — comme Trade Republic</option>
+                </select>
+                <p class="aide">
+                    Change le prix d'achat moyen de vos cryptos et les plus-values affichées à l'accueil.
+                </p>
+                <ul class="aide liste-aide">
+                    <li><strong>Méthode fiscale française</strong> : toutes vos cryptos forment un
+                        seul portefeuille. Chaque vente déduit une part du prix d'achat de tout le
+                        portefeuille, au prorata de sa valeur, comme le formulaire 2086. Le prix
+                        moyen d'une crypto, lui, est affiché en CMP.
+                        <br>Exemple : 1 000 € de BTC et 1 000 € d'ETH achetés ; le BTC vaut ensuite
+                        3 000 € et l'ETH 500 €. Une vente de 1 000 € de BTC donne 429 € de plus-value
+                        en méthode française (2 000 × 1 000 / 3 500 = 571 € déduits), contre 667 €
+                        en CMP (⅓ du coût du BTC, 333 €, déduit).</li>
+                    <li><strong>CMP</strong> : chaque achat se fond dans un prix moyen par crypto,
+                        et chaque vente est comparée à ce prix moyen.</li>
+                    <li><strong>FIFO</strong> : chaque vente retire vos achats les plus anciens,
+                        plateforme par plateforme. C'est la méthode des courtiers allemands comme
+                        Trade Republic : vous retrouvez leurs chiffres.</li>
+                </ul>
+                <p class="aide">
+                    Ce n'est qu'un choix d'affichage. La page « Déclaration fiscale » applique toujours
+                    la méthode française, la seule admise par la loi (article 150 VH bis du code
+                    général des impôts), quel que soit ce réglage.
+                </p>
+            </div>
             <button type="submit" class="bouton bouton-principal" id="bouton-valider">Enregistrer</button>
         </form>
 

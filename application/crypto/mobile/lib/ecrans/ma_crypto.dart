@@ -48,6 +48,17 @@ class EcranMaCrypto extends StatelessWidget {
               formaterPourcentage(d.performancePourcentage, signe: true),
               couleur: couleurSigne(d.performancePourcentage),
             ),
+            // Prix moyen, coût et performance dépendent de la méthode du profil :
+            // la note la nomme, pour qu'un écart avec un courtier s'explique
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Text(
+                '${explicationPrixMoyen(d.methodeCalcul)} '
+                '${d.stakingAcquisition == 'valeur_recue' ? 'Le staking y compte pour sa valeur à la réception.' : 'Le staking y compte pour un coût nul.'}'
+                ' Méthode modifiable dans le profil.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
             const TitreSection('Cours'),
             LigneValeur('Cours actuel', formaterCours(d.cours, d.devise)),
             LigneValeur(

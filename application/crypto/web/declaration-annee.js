@@ -272,6 +272,13 @@
                 ? 'Récompenses de staking comptées à leur valeur à la réception dans le prix d’acquisition (réglage du profil).'
                 : 'Récompenses de staking comptées à un prix d’acquisition nul (réglage du profil).'));
         }
+
+        // La méthode d'affichage du profil (CMP, FIFO) ne s'applique jamais ici
+        reportContenu.appendChild(element('p', 'aide decl-note',
+            'Calcul selon la méthode française (article 150 VH bis du code général des impôts), '
+            + 'la seule admise pour la déclaration : il ne dépend pas de la méthode d’affichage choisie '
+            + 'dans votre profil. Si vous avez choisi le CMP ou le FIFO, les plus-values de l’accueil '
+            + 'diffèrent donc de celles-ci.'));
     }
 
     // --- Formulaire 2086 --------------------------------------------------

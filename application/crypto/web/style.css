@@ -348,6 +348,8 @@ main {
 }
 
 .aide { margin: 0; font-size: 13px; color: var(--encre-douce); }
+.liste-aide { margin: 6px 0; padding-left: 18px; }
+.liste-aide li { margin: 3px 0; }
 
 .erreur {
     margin: 0;

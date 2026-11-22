@@ -574,8 +574,42 @@
         return element;
     }
 
+    // Méthode de calcul choisie dans le profil : nom court, et ce qu'elle
+    // signifie pour le prix d'achat moyen et pour les plus-values affichées.
+    // La déclaration fiscale, elle, suit toujours la méthode française.
+    var METHODES_CALCUL = {
+        france: {
+            court: 'Méthode fiscale française',
+            prixMoyen: 'Prix d’achat moyen au coût moyen pondéré (CMP), frais compris : chaque achat '
+                + 'se fond dans la moyenne, une vente ne la modifie pas.',
+            plusValues: 'Méthode fiscale française (article 150 VH bis), celle de la déclaration 2086 : '
+                + 'toutes les cryptos forment un seul portefeuille, et chaque vente déduit une part '
+                + 'du prix d’achat de tout le portefeuille, au prorata de sa valeur.',
+        },
+        cmp: {
+            court: 'CMP',
+            prixMoyen: 'Prix d’achat moyen au coût moyen pondéré (CMP), frais compris : chaque achat '
+                + 'se fond dans la moyenne, une vente ne la modifie pas.',
+            plusValues: 'Coût moyen pondéré (CMP) : chaque vente est comparée au prix d’achat moyen '
+                + 'de la crypto au moment de la vente.',
+        },
+        fifo: {
+            court: 'FIFO',
+            prixMoyen: 'Prix d’achat moyen en FIFO (premier entré, premier sorti), frais compris : '
+                + 'chaque vente retire vos achats les plus anciens sur sa plateforme, comme chez '
+                + 'Trade Republic.',
+            plusValues: 'FIFO (premier entré, premier sorti) : chaque vente est comparée à vos achats '
+                + 'les plus anciens sur sa plateforme, comme chez Trade Republic.',
+        },
+    };
+
+    function methodeCalcul(valeur) {
+        return METHODES_CALCUL[valeur] || METHODES_CALCUL.france;
+    }
+
     window.Crypto = {
         appeler: appeler,
+        methodeCalcul: methodeCalcul,
         pageConnectee: pageConnectee,
         typesOperation: typesOperation,
         libelleType: libelleType,

@@ -106,9 +106,12 @@
             if (position === 1) prix.className += ' pv-gain';
             if (position === -1) prix.className += ' pv-perte';
 
-            // Prix d'achat moyen, au coût moyen pondéré frais compris
+            // Prix d'achat moyen, frais compris, selon la méthode du profil :
+            // l'info-bulle dit laquelle, le chiffre pouvant différer d'un courtier
             var prixMoyen = document.createElement('span');
             prixMoyen.className = 'detention-prix';
+            prixMoyen.title = C.methodeCalcul(donnees.methode_calcul).prixMoyen
+                + ' Méthode modifiable dans votre profil.';
             prixMoyen.textContent = 'Ach. Moy. ' +(ligne.prix_moyen === null || ligne.prix_moyen === undefined
                 ? '—'
                 : C.formaterMontant(ligne.prix_moyen, 'EUR') + ' / ' + ligne.id_crypto);
@@ -340,6 +343,16 @@
             libelle.insertBefore(etiquette, libelle.firstChild);
         }
 
+        // Hors méthode française, le chiffre ne sera pas celui de la 2086 :
+        // l'étiquette le dit d'un coup d'œil, la note dessous explique pourquoi
+        if (donnees.methode && donnees.methode !== 'france') {
+            var etiquetteMethode = document.createElement('span');
+            etiquetteMethode.className = 'pv-etiquette';
+            etiquetteMethode.textContent = C.methodeCalcul(donnees.methode).court;
+            etiquetteMethode.title = C.methodeCalcul(donnees.methode).plusValues;
+            libelle.insertBefore(etiquetteMethode, libelle.firstChild);
+        }
+
         var montantTotal = document.createElement('span');
         montantTotal.className = 'pv-total-montant ' + classePlusValue(donnees.total.plus_value);
         afficherPlusValue(montantTotal, donnees.total);
@@ -369,6 +382,29 @@
         if (donnees.staking && donnees.staking.operations) {
             pvContenu.appendChild(noteStaking(donnees.staking.convention));
         }
+
+        pvContenu.appendChild(noteMethode(donnees.methode));
+    }
+
+    // Méthode de calcul du profil : toujours rappelée, car elle change le
+    // chiffre. Hors méthode française, la note prévient que la 2086 diffère.
+    function noteMethode(methode) {
+        var note = document.createElement('p');
+        note.className = 'aide pv-convention';
+        var texte = C.methodeCalcul(methode).plusValues;
+        if (methode && methode !== 'france') {
+            texte += ' Simple affichage : la déclaration fiscale applique toujours la méthode française,'
+                + ' son montant sera donc différent.';
+        }
+        note.appendChild(document.createTextNode(texte + ' Changer de méthode : '));
+
+        var lien = document.createElement('a');
+        lien.href = '/profil.html';
+        lien.textContent = 'profil';
+        note.appendChild(lien);
+
+        note.appendChild(document.createTextNode('.'));
+        return note;
     }
 
     // Les cours sont volatils : la note dit sur quel relevé repose la simulation

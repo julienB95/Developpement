@@ -1,5 +1,6 @@
 // Page de profil : identité, devise d'affichage, valeurs reprises à la saisie,
-// et la convention fiscale retenue pour les récompenses de staking.
+// la convention fiscale retenue pour les récompenses de staking, et la méthode
+// de calcul du prix moyen et des plus-values affichés.
 (function () {
     'use strict';
 
@@ -20,6 +21,7 @@
         devise: document.getElementById('devise'),
         plateforme_defaut: document.getElementById('plateforme_defaut'),
         staking_acquisition: document.getElementById('staking_acquisition'),
+        methode_calcul: document.getElementById('methode_calcul'),
         mot_de_passe_actuel: document.getElementById('mot_de_passe_actuel'),
     };
     var blocMotDePasseActuel = document.getElementById('bloc-mot-de-passe-actuel');
@@ -89,6 +91,7 @@
         champs.devise.value = compte.devise || 'EUR';
         champs.plateforme_defaut.value = compte.plateforme_defaut || '';
         champs.staking_acquisition.value = compte.staking_acquisition || 'nulle';
+        champs.methode_calcul.value = compte.methode_calcul || 'france';
 
         accesGoogle.textContent = compte.autorise_google
             ? 'La connexion par Google est autorisée sur ce compte.'
@@ -108,6 +111,7 @@
             devise: champs.devise.value,
             plateforme_defaut: champs.plateforme_defaut.value || null,
             staking_acquisition: champs.staking_acquisition.value,
+            methode_calcul: champs.methode_calcul.value,
         };
 
         if (!corps.prenom || !corps.nom) return afficherErreur('Renseignez votre prénom et votre nom.');
